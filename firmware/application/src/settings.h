@@ -33,6 +33,9 @@ typedef enum {
     SettingsButtonShowBattery = 4U,
     // Toggle NFC field generator on/off (Ultra only, must be in reader mode)
     SettingsButtonNfcFieldGenerator = 5U,
+    // Read all readable sectors of a MFC 1K card using known/default keys and
+    // load the result into a scratch slot. On-device only, no host required.
+    SettingsButtonFullReadToSlot = 6U,
 } settings_button_function_t;
 
 typedef struct ALIGN_U32 {

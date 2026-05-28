@@ -590,6 +590,7 @@ class ButtonPressFunction(enum.IntEnum):
     CLONE = 3
     BATTERY = 4
     FIELDGEN = 5
+    FULLREAD = 6
 
     def __str__(self):
         if self == ButtonPressFunction.NONE:
@@ -604,6 +605,8 @@ class ButtonPressFunction(enum.IntEnum):
             return "Show Battery Level"
         elif self == ButtonPressFunction.FIELDGEN:
             return "Toggle NFC Field Generator"
+        elif self == ButtonPressFunction.FULLREAD:
+            return "Full-read MFC 1K via default keys into scratch slot"
         return "None"
 
 

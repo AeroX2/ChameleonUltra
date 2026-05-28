@@ -226,6 +226,19 @@ static data_frame_tx_t *cmd_processor_set_double_button_press_config(uint16_t cm
     return data_frame_make(cmd, STATUS_SUCCESS, 0, NULL);
 }
 
+static data_frame_tx_t *cmd_processor_get_chord_button_press_config(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
+    uint8_t chord_config = settings_get_chord_button_press_config();
+    return data_frame_make(cmd, STATUS_SUCCESS, sizeof(chord_config), &chord_config);
+}
+
+static data_frame_tx_t *cmd_processor_set_chord_button_press_config(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
+    if (length != 1) {
+        return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+    }
+    settings_set_chord_button_press_config(data[0]);
+    return data_frame_make(cmd, STATUS_SUCCESS, 0, NULL);
+}
+
 static data_frame_tx_t *cmd_processor_get_sleep_timeout(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
     uint8_t seconds = settings_get_sleep_timeout() / 1000U;
     return data_frame_make(cmd, STATUS_SUCCESS, 1, &seconds);
@@ -2985,6 +2998,8 @@ static cmd_data_map_t m_data_cmd_map[] = {
     {    DATA_CMD_SET_SLEEP_TIMEOUT,            NULL,                        cmd_processor_set_sleep_timeout,             NULL                   },
     {    DATA_CMD_GET_DOUBLE_BUTTON_PRESS_CONFIG, NULL,                      cmd_processor_get_double_button_press_config, NULL                  },
     {    DATA_CMD_SET_DOUBLE_BUTTON_PRESS_CONFIG, NULL,                      cmd_processor_set_double_button_press_config, NULL                  },
+    {    DATA_CMD_GET_CHORD_BUTTON_PRESS_CONFIG, NULL,                       cmd_processor_get_chord_button_press_config,  NULL                  },
+    {    DATA_CMD_SET_CHORD_BUTTON_PRESS_CONFIG, NULL,                       cmd_processor_set_chord_button_press_config,  NULL                  },
     {    DATA_CMD_GET_ALL_SLOT_NICKS,           NULL,                        cmd_processor_get_all_slot_nicks,            NULL                   },
 
 #if defined(PROJECT_CHAMELEON_ULTRA)

@@ -5,7 +5,7 @@
 
 #include "utils.h"
 
-#define SETTINGS_CURRENT_VERSION 7
+#define SETTINGS_CURRENT_VERSION 8
 #define SETTINGS_SLEEP_TIMEOUT_DEFAULT_S 8   // default wake timeout in seconds (matches SLEEP_DELAY_MS_BUTTON_WAKEUP)
 #define SETTINGS_SLEEP_TIMEOUT_MIN_S      5
 #define SETTINGS_SLEEP_TIMEOUT_MAX_S      60
@@ -61,6 +61,10 @@ typedef struct ALIGN_U32 {
     uint8_t button_a_double : 4;
     uint8_t button_b_double : 4;
 
+    // 1 byte (add on version8)
+    uint8_t button_chord : 4;
+    uint8_t reserved1 : 4;
+
     /*
      * Warning !!!!!!!!!!!!!!!!!!!!!! <-------------
      * If you need to add settings,
@@ -78,10 +82,13 @@ void settings_set_animation_config(uint8_t value);
 uint8_t settings_get_button_press_config(char which);
 uint8_t settings_get_long_button_press_config(char which);
 uint8_t settings_get_double_button_press_config(char which);
+uint8_t settings_get_chord_button_press_config(void);
 void settings_set_button_press_config(char which, uint8_t value);
 void settings_set_long_button_press_config(char which, uint8_t value);
 void settings_set_double_button_press_config(char which, uint8_t value);
+void settings_set_chord_button_press_config(uint8_t value);
 void settings_init_double_button_press_config(void);
+void settings_init_chord_button_press_config(void);
 bool is_settings_button_type_valid(char type);
 uint8_t *settings_get_ble_connect_key(void);
 void settings_set_ble_connect_key(uint8_t *key);

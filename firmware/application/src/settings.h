@@ -35,6 +35,9 @@ typedef enum {
     SettingsButtonNfcFieldGenerator = 5U,
     // Toggle the BLE radio (advertising) on/off; the choice is persisted to flash
     SettingsButtonToggleBle = 6U,
+    // Read all readable sectors of a MFC 1K card using known/default keys and
+    // load the result into a scratch slot. On-device only, no host required.
+    SettingsButtonFullReadToSlot = 7U,
 } settings_button_function_t;
 
 typedef struct ALIGN_U32 {

@@ -1579,6 +1579,25 @@ class ChameleonCMD:
         return self.device.send_cmd_sync(Command.SET_LONG_BUTTON_PRESS_CONFIG, data)
 
     @expect_response(Status.SUCCESS)
+    def get_double_button_press_config(self, button: ButtonType):
+        """
+        Get config of double-click button function
+        """
+        data = struct.pack('!B', button)
+        resp = self.device.send_cmd_sync(Command.GET_DOUBLE_BUTTON_PRESS_CONFIG, data)
+        if resp.status == Status.SUCCESS:
+            resp.parsed = resp.data[0]
+        return resp
+
+    @expect_response(Status.SUCCESS)
+    def set_double_button_press_config(self, button: ButtonType, function: ButtonPressFunction):
+        """
+        Set config of double-click button function
+        """
+        data = struct.pack('!BB', button, function)
+        return self.device.send_cmd_sync(Command.SET_DOUBLE_BUTTON_PRESS_CONFIG, data)
+
+    @expect_response(Status.SUCCESS)
     def set_ble_connect_key(self, key: str):
         """
         Set config of ble connect key

@@ -1022,6 +1022,23 @@ int main(void) {
     on_data_frame_complete(on_data_frame_received);
 
     check_wakeup_src();       // Detect wake-up source and decide BLE broadcast and subsequent hibernation action according to the wake-up source
+
+    // Boot-time slot select: if the user is holding exactly one button as the
+    // device starts up, switch to slot 1 (A) or slot 2 (B). Buttons were
+    // configured as input-with-pulldown by button_init() above; pressed = 1.
+    // Skip if both buttons are held (ambiguous) or neither is held.
+    {
+        bool a_held = (nrf_gpio_pin_read(BUTTON_2) == 1);
+        bool b_held = (nrf_gpio_pin_read(BUTTON_1) == 1);
+        if (a_held != b_held) {
+            uint8_t boot_slot = a_held ? 0 : 1;
+            if (boot_slot != tag_emulation_get_slot()) {
+                NRF_LOG_INFO("Boot-time slot select: switching to slot %d", boot_slot + 1);
+                tag_emulation_change_slot(boot_slot, false);
+            }
+        }
+    }
+
     tag_mode_enter();         // Enter card emulation mode by default
 
     // usbd event listener

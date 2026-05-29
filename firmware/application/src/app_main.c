@@ -56,7 +56,9 @@ APP_TIMER_DEF(m_button_a_long_press_timer); // Per-button long-hold detection (A
 APP_TIMER_DEF(m_button_b_long_press_timer); // Per-button long-hold detection (B)
 APP_TIMER_DEF(m_button_a_dblclick_timer);   // Awaiting second-click window (A)
 APP_TIMER_DEF(m_button_b_dblclick_timer);   // Awaiting second-click window (B)
-APP_TIMER_DEF(m_write_confirm_timeout);     // Per-step timeout for write-confirm
+#if defined(PROJECT_CHAMELEON_ULTRA)
+APP_TIMER_DEF(m_write_confirm_timeout);     // Per-step timeout for write-confirm (Ultra-only)
+#endif
 
 #define BUTTON_LONG_HOLD_MS 1000
 // Window to wait for a second click before dispatching a single-click. Kept
@@ -69,6 +71,7 @@ APP_TIMER_DEF(m_write_confirm_timeout);     // Per-step timeout for write-confir
 // Write-to-card requires a confirmation sequence (A short -> B short -> A+B
 // chord) before performing the actual write. While armed, all button events
 // are routed to the confirm state machine instead of normal bindings.
+#if defined(PROJECT_CHAMELEON_ULTRA)
 typedef enum {
     WRITE_CONFIRM_IDLE = 0,
     WRITE_CONFIRM_EXPECT_A,
@@ -76,6 +79,10 @@ typedef enum {
     WRITE_CONFIRM_EXPECT_CHORD,
 } write_confirm_state_t;
 static write_confirm_state_t m_write_confirm_state = WRITE_CONFIRM_IDLE;
+// Defined later in the Ultra-only reader block; forward-declared here because
+// timers_init() registers it well before that block.
+static void timer_write_confirm_timeout_handle(void *arg);
+#endif
 
 static bool m_is_b_btn_press = false;
 static bool m_is_a_btn_press = false;

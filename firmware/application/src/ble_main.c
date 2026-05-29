@@ -624,7 +624,20 @@ void advertising_start(bool erase_bonds) {
  * @brief Function for stop advertising.
  */
 void advertising_stop(void) {
-    sd_ble_gap_adv_stop(m_advertising.adv_handle);
+    ret_code_t err_code = sd_ble_gap_adv_stop(m_advertising.adv_handle);
+    // INVALID_STATE just means advertising was not currently running.
+    if (err_code != NRF_SUCCESS && err_code != NRF_ERROR_INVALID_STATE) {
+        NRF_LOG_WARNING("adv stop failed");
+    }
+}
+
+// Tear down any active BLE link. Stopping advertising alone leaves an already
+// connected host talking to the device, so "BLE off" must also drop the live
+// connection.
+void ble_disconnect(void) {
+    if (g_is_ble_connected) {
+        sd_ble_gap_disconnect(m_conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+    }
 }
 
 /**@brief Function for handling Peer Manager events.

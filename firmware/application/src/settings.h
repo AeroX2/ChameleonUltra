@@ -5,7 +5,7 @@
 
 #include "utils.h"
 
-#define SETTINGS_CURRENT_VERSION 9
+#define SETTINGS_CURRENT_VERSION 10
 #define SETTINGS_SLEEP_TIMEOUT_DEFAULT_S 8   // default wake timeout in seconds (matches SLEEP_DELAY_MS_BUTTON_WAKEUP)
 #define SETTINGS_SLEEP_TIMEOUT_MIN_S      5
 #define SETTINGS_SLEEP_TIMEOUT_MAX_S      60
@@ -35,14 +35,6 @@ typedef enum {
     SettingsButtonNfcFieldGenerator = 5U,
     // Toggle the BLE radio (advertising) on/off; the choice is persisted to flash
     SettingsButtonToggleBle = 6U,
-    // Read all readable sectors of a MFC 1K card using known/default keys and
-    // load the result into a scratch slot. On-device only, no host required.
-    SettingsButtonFullReadToSlot = 7U,
-    // Write the currently-active slot's contents to a physical card. Requires
-    // an A -> B -> A+B confirmation sequence first to guard against accidental
-    // writes. Writes HF (MFC 1K with default keys) and/or LF (EM410x via
-    // T55xx) depending on which is enabled in the slot.
-    SettingsButtonWriteToCard = 8U,
 } settings_button_function_t;
 
 typedef struct ALIGN_U32 {

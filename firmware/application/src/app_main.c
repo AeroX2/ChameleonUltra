@@ -1030,6 +1030,10 @@ static void btn_fn_copy_ic_uid(void) {
     if (!was_in_reader_mode) {
         tag_mode_enter();
     }
+
+    // CLONE may have switched to a different (scratch/empty) slot; refresh the
+    // LEDs so the now-active slot is the one lit.
+    light_up_by_slot();
 }
 
 #endif

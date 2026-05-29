@@ -79,6 +79,9 @@ typedef enum {
     WRITE_CONFIRM_EXPECT_CHORD,
 } write_confirm_state_t;
 static write_confirm_state_t m_write_confirm_state = WRITE_CONFIRM_IDLE;
+// Defined later in the Ultra-only reader block; forward-declared here because
+// timers_init() registers it well before that block.
+static void timer_write_confirm_timeout_handle(void *arg);
 #endif
 
 static bool m_is_b_btn_press = false;

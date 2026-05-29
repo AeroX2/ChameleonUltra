@@ -19,4 +19,20 @@ void rgb_marquee_usb_idle(void);
 void rgb_marquee_symmetric_out(uint8_t color, uint8_t slot);
 void rgb_marquee_symmetric_in(uint8_t color, uint8_t slot);
 
+// Non-blocking boot/wake-up animation engine.
+// Build a sequence with rgb_marquee_boot_clear()/rgb_marquee_boot_push(), start
+// it with rgb_marquee_boot_run(), then call rgb_marquee_boot_process() from the
+// main loop until rgb_marquee_boot_is_active() returns false. On completion the
+// final slot colour is applied and on_complete (e.g. light_up_by_slot) is called.
+#define RGB_BOOT_SWEEP_TO       0
+#define RGB_BOOT_SWEEP_FROM_TO  1
+#define RGB_BOOT_SYMMETRIC_OUT  2
+#define RGB_BOOT_SYMMETRIC_IN   3
+
+void rgb_marquee_boot_clear(void);
+void rgb_marquee_boot_push(uint8_t type, uint8_t color, uint8_t p1, uint8_t p2);
+void rgb_marquee_boot_run(uint8_t final_color, void (*on_complete)(void));
+bool rgb_marquee_boot_is_active(void);
+void rgb_marquee_boot_process(void);
+
 #endif

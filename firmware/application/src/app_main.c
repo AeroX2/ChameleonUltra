@@ -688,7 +688,13 @@ static void check_wakeup_src(void) {
 
     if (m_reset_source & NRF_POWER_RESETREAS_OFF_MASK) {
         NRF_LOG_INFO("WakeUp from button");
-        advertising_start(false); // Turn on Bluetooth radio
+        // Only advertise when the BLE stack is up. With the radio disabled in
+        // settings, ble_slave_init() (and the SoftDevice) is skipped at boot,
+        // so calling advertising_start() here would fault (stuck red on every
+        // button wake). When the radio is off we simply don't advertise.
+        if (is_ble_initialized()) {
+            advertising_start(false); // Turn on Bluetooth radio
+        }
 
         // Button wake-up boot animation (non-blocking; plays from the main loop)
         uint8_t animation_config = settings_get_animation_config();
@@ -749,7 +755,9 @@ static void check_wakeup_src(void) {
         // light_up_by_slot();
 
         // Start Bluetooth radio with USB plugged in, no deep hibernation required
-        advertising_start(false);
+        if (is_ble_initialized()) {
+            advertising_start(false);
+        }
     } else {
         NRF_LOG_INFO("First power system");
 
@@ -785,7 +793,9 @@ static void check_wakeup_src(void) {
         if (nrfx_power_usbstatus_get() != NRFX_POWER_USB_STATE_DISCONNECTED) {
             NRF_LOG_INFO("USB Power found.");
             // usb plugged in can broadcast BLE at will
-            advertising_start(false);
+            if (is_ble_initialized()) {
+                advertising_start(false);
+            }
         } else {
             sleep_timer_start(SLEEP_DELAY_MS_FIRST_POWER); // Wait a while and go straight to hibernation, do nothing
         }

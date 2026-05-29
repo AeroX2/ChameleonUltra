@@ -1328,15 +1328,15 @@ int main(void) {
     power_management_init();  // Power management initialization
     usb_cdc_init();           // USB cdc emulation initialization
     battery_monitor_init();   // Battery sampling (runs regardless of BLE state)
-    // Only bring up the SoftDevice/BLE stack when the radio is enabled. When the
-    // user has switched BLE off (A+B chord), skipping this saves the ~500ms
-    // SoftDevice init and its idle power draw. The stack is brought up on demand
-    // later if needed (runtime toggle on, or flash save in system_off_enter).
-    if (settings_get_ble_radio_enable()) {
-        ble_slave_init();     // Bluetooth protocol stack initialization
-    } else {
-        NRF_LOG_INFO("BLE radio disabled in settings, skipping stack init");
-    }
+    // Always bring up the SoftDevice/BLE stack. A previous optimization skipped
+    // this when the radio was disabled to save ~500ms boot + idle power, but
+    // leaving the SoftDevice disabled made various sd_*/SoftDevice calls in the
+    // boot and runtime paths fault (stuck red), and guarding every one proved
+    // unreliable. "Radio off" is handled at the advertising layer instead:
+    // advertising_start() refuses to advertise while the radio is disabled, and
+    // the toggle drops any active link -- so the radio stays quiet while the
+    // stack stays safely initialized.
+    ble_slave_init();         // Bluetooth protocol stack initialization
 
     rng_drv_and_srand_init(); // Random number generator initialization
     bsp_timer_init();         // Initialize timeout timer

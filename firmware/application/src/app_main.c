@@ -48,7 +48,8 @@ NRF_LOG_MODULE_REGISTER();
 #endif
 
 // Defining soft timers
-APP_TIMER_DEF(m_button_check_timer); // Timer for button debounce
+APP_TIMER_DEF(m_button_a_check_timer); // Debounce timer for button A
+APP_TIMER_DEF(m_button_b_check_timer); // Debounce timer for button B
 APP_TIMER_DEF(m_button_a_long_press_timer); // Per-button long-hold detection (A)
 APP_TIMER_DEF(m_button_b_long_press_timer); // Per-button long-hold detection (B)
 APP_TIMER_DEF(m_button_a_dblclick_timer);   // Awaiting second-click window (A)
@@ -225,9 +226,18 @@ static void button_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t a
     device_mode_t mode = get_device_mode();
     // Allow button operations in both tag and reader mode
     if (mode == DEVICE_MODE_TAG || mode == DEVICE_MODE_READER) {
-        static nrf_drv_gpiote_pin_t pin_static;                                  // Use static internal variables to store the GPIO where the current event occurred
-        pin_static = pin;                                                        // Cache the button that currently triggers the event into an internal variable
-        app_timer_start(m_button_check_timer, APP_TIMER_TICKS(25), &pin_static); // Start timer anti-shake (25ms debounce for snappier button response)
+        // Per-button debounce. A shared timer + single pin cache used to drop
+        // one of two near-simultaneous A/B presses (the second edge overwrote
+        // the first), which broke the A+B chord. Give each button its own
+        // debounce timer and pin storage so both presses are registered.
+        static nrf_drv_gpiote_pin_t pin_a_static, pin_b_static;
+        if (pin == BUTTON_2) {        // button A
+            pin_a_static = pin;
+            app_timer_start(m_button_a_check_timer, APP_TIMER_TICKS(25), &pin_a_static);
+        } else if (pin == BUTTON_1) { // button B
+            pin_b_static = pin;
+            app_timer_start(m_button_b_check_timer, APP_TIMER_TICKS(25), &pin_b_static);
+        }
     }
 }
 
@@ -447,7 +457,9 @@ static void button_init(void) {
     ret_code_t err_code;
 
     // Non-exact timer for initializing button anti-shake
-    err_code = app_timer_create(&m_button_check_timer, APP_TIMER_MODE_SINGLE_SHOT, timer_button_event_handle);
+    err_code = app_timer_create(&m_button_a_check_timer, APP_TIMER_MODE_SINGLE_SHOT, timer_button_event_handle);
+    APP_ERROR_CHECK(err_code);
+    err_code = app_timer_create(&m_button_b_check_timer, APP_TIMER_MODE_SINGLE_SHOT, timer_button_event_handle);
     APP_ERROR_CHECK(err_code);
 
     // Per-button long-hold timers (fire after BUTTON_LONG_HOLD_MS of continuous press).
@@ -1034,8 +1046,10 @@ static void btn_fn_copy_ic_uid(void) {
         tag_mode_enter();
     }
 
-    // CLONE may have switched to a different (scratch/empty) slot; refresh the
-    // LEDs so the now-active slot is the one lit.
+    // CLONE may have switched to a different (scratch/empty) slot. Drop any
+    // leftover wake/boot animation frames first (they would otherwise repaint
+    // the old slot's LED after we refresh), then light only the active slot.
+    rgb_marquee_boot_clear();
     light_up_by_slot();
 }
 

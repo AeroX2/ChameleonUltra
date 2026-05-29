@@ -22,6 +22,49 @@ Lazada One, Singapore: [Aliexpress by RRG](https://proxgrind.aliexpress.com/stor
 
 Read the [available documentation](https://github.com/RfidResearchGroup/ChameleonUltra/wiki).
 
+# Custom firmware features (this fork)
+
+This fork adds a set of on-device usability and performance improvements on top
+of the upstream firmware. All of the following are merged into `main`.
+
+### Buttons & on-device controls
+* **Long-press fires while held** — a long-press action triggers the instant its
+  hold threshold is reached (with LED feedback), instead of waiting for release.
+* **Double-click bindings** — a quick double-tap can be mapped to its own action,
+  doubling the functions reachable from the two buttons.
+* **A+B chord binding** — pressing both buttons together triggers a dedicated
+  action without firing the individual button events.
+* **WRITE button** — write the active slot to a physical card, guarded by an
+  A, B, A+B confirmation sequence to prevent accidental overwrites.
+* **FULLREAD button** — on-device dump of a card using the built-in default-key
+  dictionary, no host/CLI required.
+* **Boot-time slot select** — hold a button during power-on to jump straight to a
+  chosen slot.
+
+### Cloning
+* **CLONE wait + scratch slot** — the on-device clone waits ~5 s for the card to
+  be presented and writes the capture into a dedicated scratch slot, so an
+  existing slot is never clobbered.
+
+### BLE radio
+* **Persisted on/off toggle (A+B chord)** — turn the BLE radio on or off from the
+  device; the choice survives reboots.
+* **LED feedback on toggle** — a blue blink for ON, red for OFF, so the state
+  change is visible.
+* **True disconnect on OFF** — disabling the radio also drops any active
+  connection, not just future advertising.
+* **Skip BLE init at boot when disabled** — when the radio is left off, the BLE
+  stack is not brought up at boot, for a faster and lower-power start.
+
+### Responsiveness & performance
+* **Non-blocking boot/wake LED animation** — the device starts emulating and
+  answering the host almost immediately; the LED sweep now plays in parallel
+  instead of stalling startup.
+* **Snappier slot switching** — the slot-change LED fade no longer blocks the
+  device for ~250 ms per switch.
+* **Lower input latency** — button debounce reduced (50 ms → 25 ms) and the
+  double-click detection window shortened (250 ms → 200 ms).
+
 # Compatible applications
 
 * [ChameleonUltraGUI](https://github.com/GameTec-live/ChameleonUltraGUI)

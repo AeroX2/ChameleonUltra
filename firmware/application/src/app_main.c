@@ -1056,10 +1056,17 @@ static void btn_fn_copy_ic_uid(void) {
         tag_mode_enter();
     }
 
-    // CLONE may have switched to a different (scratch/empty) slot. Drop any
-    // leftover wake/boot animation frames first (they would otherwise repaint
-    // the old slot's LED after we refresh), then light only the active slot.
-    rgb_marquee_boot_clear();
+    // CLONE may have switched to a different (scratch/empty) slot. Reset the
+    // LEDs the same way slot cycling does: stop any running marquee (the main
+    // loop's USB idle/sweep animation would otherwise keep repainting the old
+    // slot), clear every LED, then light only the now-active slot. (boot-queue
+    // clear alone wasn't enough -- it doesn't stop the running marquee.)
+    rgb_marquee_stop();
+    uint32_t *led_pins = hw_get_led_array();
+    for (int i = 0; i < RGB_LIST_NUM; i++) {
+        nrf_gpio_pin_clear(led_pins[i]);
+    }
+    set_slot_light_color(get_color_by_slot(tag_emulation_get_slot()));
     light_up_by_slot();
 }
 

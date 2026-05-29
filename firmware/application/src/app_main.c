@@ -59,7 +59,10 @@ APP_TIMER_DEF(m_button_b_dblclick_timer);   // Awaiting second-click window (B)
 // short so single presses (e.g. slot switching) stay snappy; trades a little
 // double-click timing tolerance for lower single-click latency.
 #define BUTTON_DBLCLICK_WINDOW_MS 200
-#define BUTTON_CHORD_WINDOW_MS 80
+// Max gap between the two presses for an A+B chord to register. Widened from
+// 80ms so the chord is reliably triggerable by hand (tradeoff: a fast A-then-B
+// can occasionally count as a chord rather than two separate presses).
+#define BUTTON_CHORD_WINDOW_MS 200
 // Boot-time slot select: after a button wake, how long to keep counting extra
 // A taps before committing. Each tap restarts the window. Tune on-device.
 #define BOOT_SLOT_CLICK_WINDOW_MS 250

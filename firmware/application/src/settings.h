@@ -35,6 +35,8 @@ typedef enum {
     SettingsButtonNfcFieldGenerator = 5U,
     // Toggle the BLE radio (advertising) on/off; the choice is persisted to flash
     SettingsButtonToggleBle = 6U,
+    // Read a 125kHz EM410x card and emulate it in a slot (LF UID clone, on-device)
+    SettingsButtonCloneLfUid = 7U,
 } settings_button_function_t;
 
 typedef struct ALIGN_U32 {

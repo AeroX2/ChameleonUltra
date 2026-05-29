@@ -596,6 +596,7 @@ class ButtonPressFunction(enum.IntEnum):
     BATTERY = 4
     FIELDGEN = 5
     TOGGLEBLE = 6
+    CLONELF = 7
 
     def __str__(self):
         if self == ButtonPressFunction.NONE:
@@ -612,6 +613,8 @@ class ButtonPressFunction(enum.IntEnum):
             return "Toggle NFC Field Generator"
         elif self == ButtonPressFunction.TOGGLEBLE:
             return "Toggle BLE radio on/off"
+        elif self == ButtonPressFunction.CLONELF:
+            return "Read then emulate a 125kHz EM410x card (LF UID clone)"
         return "None"
 
 

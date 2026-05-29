@@ -102,7 +102,21 @@ static ble_uuid_t m_adv_uuids[]          =                                      
 };
 volatile bool g_is_ble_connected = false;
 volatile bool g_is_low_battery_shutdown = false;
+static bool m_ble_initialized = false;                                              /**< Tracks whether the SoftDevice/BLE stack has been initialized. */
 static ble_opt_t m_static_pin_option;
+
+/**@brief Report whether the SoftDevice/BLE stack has been initialized.
+ *
+ * @details When the BLE radio is disabled in settings, ble_slave_init() is
+ *          skipped at boot to save the SoftDevice init time. Callers that use
+ *          SoftDevice-backed services (flash save, sd_power_* APIs) must check
+ *          this and initialize the stack on demand.
+ *
+ * @return true if ble_slave_init() has completed, false otherwise.
+ */
+bool is_ble_initialized(void) {
+    return m_ble_initialized;
+}
 
 // Simple function to provide an index to the next input buffer
 // Will simply alernate between 0 and 1 when SAADC_BUF_COUNT is 2
@@ -739,14 +753,18 @@ static void battery_level_meas_timeout_handler(void *p_context) {
     percentage_batt_lvl = BATVOL2PERCENT(batt_lvl_in_milli_volts);
 
     // if battery service is notification enable, we can send msg to device.
-    err_code = ble_bas_battery_level_update(&m_bas, percentage_batt_lvl, BLE_CONN_HANDLE_ALL);
-    if ((err_code != NRF_SUCCESS) &&
-            (err_code != NRF_ERROR_INVALID_STATE) &&
-            (err_code != NRF_ERROR_RESOURCES) &&
-            (err_code != NRF_ERROR_BUSY) &&
-            (err_code != NRF_ERROR_FORBIDDEN) &&
-            (err_code != BLE_ERROR_GATTS_SYS_ATTR_MISSING)) {
-        APP_ERROR_HANDLER(err_code);
+    // Only touch the BLE battery service once the stack is up; when the radio is
+    // disabled, battery sampling still runs but there is no GATT to notify.
+    if (is_ble_initialized()) {
+        err_code = ble_bas_battery_level_update(&m_bas, percentage_batt_lvl, BLE_CONN_HANDLE_ALL);
+        if ((err_code != NRF_SUCCESS) &&
+                (err_code != NRF_ERROR_INVALID_STATE) &&
+                (err_code != NRF_ERROR_RESOURCES) &&
+                (err_code != NRF_ERROR_BUSY) &&
+                (err_code != NRF_ERROR_FORBIDDEN) &&
+                (err_code != BLE_ERROR_GATTS_SYS_ATTR_MISSING)) {
+            APP_ERROR_HANDLER(err_code);
+        }
     }
 
     // check low battery level, if level == 0, we can try to shutdown.
@@ -770,11 +788,24 @@ void create_battery_timer(void) {
 }
 
 /**
+ * @brief Initialize battery monitoring (ADC + periodic sampling timer).
+ *
+ * @details Kept independent of the BLE stack so the device keeps measuring
+ *          battery level and low-battery protection works even when the radio
+ *          is disabled and ble_slave_init() is skipped. Call exactly once.
+ */
+void battery_monitor_init(void) {
+    adc_configure();                    // ADC initialization
+    create_battery_timer();             // Create a battery power update timer
+}
+
+/**
  * @brief Function for init ble slave.
  */
 void ble_slave_init(void) {
-    adc_configure();                    // ADC initialization
-    create_battery_timer();             // Create a battery power update timer
+    if (m_ble_initialized) {
+        return;                         // Already initialized; nothing to do.
+    }
     ble_stack_init();                   // BLE protocol stack initialization
     gap_params_init();                  // GAP parameter initialization
     gatt_init();                        // Gatt protocol initialization
@@ -782,6 +813,7 @@ void ble_slave_init(void) {
     advertising_init();                 // Broadcast parameter initialization
     conn_params_init();                 // Connection parameter initialization
     peer_manager_init();                // Peer manager Initialization
+    m_ble_initialized = true;           // Mark the stack as ready.
 }
 
 void register_lf_adc_callback(lf_adc_callback_t cb) {

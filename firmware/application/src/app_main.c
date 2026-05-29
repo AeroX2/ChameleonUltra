@@ -478,6 +478,13 @@ static void button_init(void) {
 static void system_off_enter(void) {
     ret_code_t ret;
     m_system_off_processing = true;
+    // Flash save (FDS) and the sd_power_* hibernation calls below require the
+    // SoftDevice to be enabled. If the BLE stack was skipped at boot (radio
+    // disabled), bring it up now before saving so those paths behave normally.
+    if (!is_ble_initialized()) {
+        NRF_LOG_INFO("Late BLE init for flash save before sleep");
+        ble_slave_init();
+    }
     // Save tag data
     tag_emulation_save();
 
@@ -631,11 +638,22 @@ static void system_off_enter(void) {
  *@brief :Detection of wake-up source
  */
 static void check_wakeup_src(void) {
-    sd_power_reset_reason_get(&m_reset_source);
-    sd_power_reset_reason_clr(m_reset_source);
+    // The reset reason and GPREGRET2 must be read via the SoftDevice when it is
+    // enabled, but through direct register access when the BLE stack was skipped
+    // at boot (radio disabled in settings).
+    if (is_ble_initialized()) {
+        sd_power_reset_reason_get(&m_reset_source);
+        sd_power_reset_reason_clr(m_reset_source);
 
-    sd_power_gpregret_get(1, &m_gpregret_val);
-    sd_power_gpregret_clr(1, GPREGRET_CLEAR_VALUE_DEFAULT);
+        sd_power_gpregret_get(1, &m_gpregret_val);
+        sd_power_gpregret_clr(1, GPREGRET_CLEAR_VALUE_DEFAULT);
+    } else {
+        m_reset_source = nrf_power_resetreas_get();
+        nrf_power_resetreas_clear(m_reset_source);
+
+        m_gpregret_val = NRF_POWER->GPREGRET2;
+        NRF_POWER->GPREGRET2 = 0;
+    }
 
 
     /*
@@ -1018,6 +1036,10 @@ static void btn_fn_copy_ic_uid(void) {
 
 /**@brief Execute the corresponding logic based on the functional settings of the buttons.
  */
+// Forward declaration: defined later, but needed by the runtime BLE toggle to
+// set the pairing passkey after an on-demand stack init.
+static void ble_passkey_init(void);
+
 // Toggle the BLE radio (advertising) on/off and persist the choice to flash.
 // Bound to the A+B chord by default (see settings_init_chord_button_press_config).
 // Brief all-LED blink to acknowledge a BLE-radio toggle. Without this the A+B
@@ -1044,6 +1066,11 @@ static void btn_fn_toggle_ble(void) {
     settings_save_config();
     if (enable) {
         NRF_LOG_INFO("BLE radio enabled");
+        // The stack may have been skipped at boot; bring it up before advertising.
+        if (!is_ble_initialized()) {
+            ble_slave_init();
+            ble_passkey_init();
+        }
         advertising_start(false);
         ble_toggle_blink(RGB_BLUE); // blue = BLE on
     } else {
@@ -1232,7 +1259,7 @@ static void blink_usb_led_status(void) {
 }
 
 static void lesc_event_process(void) {
-    if (settings_get_ble_pairing_enable_first_load()) {
+    if (is_ble_initialized() && settings_get_ble_pairing_enable_first_load()) {
         ret_code_t err_code;
         err_code = nrf_ble_lesc_request_handler();
         APP_ERROR_CHECK(err_code);
@@ -1240,7 +1267,7 @@ static void lesc_event_process(void) {
 }
 
 static void ble_passkey_init(void) {
-    if (settings_get_ble_pairing_enable_first_load()) {
+    if (is_ble_initialized() && settings_get_ble_pairing_enable_first_load()) {
         set_ble_connect_key(settings_get_ble_connect_key());
     }
 }
@@ -1259,7 +1286,16 @@ int main(void) {
     app_timers_init();        // Initialize soft timer
     power_management_init();  // Power management initialization
     usb_cdc_init();           // USB cdc emulation initialization
-    ble_slave_init();         // Bluetooth protocol stack initialization
+    battery_monitor_init();   // Battery sampling (runs regardless of BLE state)
+    // Only bring up the SoftDevice/BLE stack when the radio is enabled. When the
+    // user has switched BLE off (A+B chord), skipping this saves the ~500ms
+    // SoftDevice init and its idle power draw. The stack is brought up on demand
+    // later if needed (runtime toggle on, or flash save in system_off_enter).
+    if (settings_get_ble_radio_enable()) {
+        ble_slave_init();     // Bluetooth protocol stack initialization
+    } else {
+        NRF_LOG_INFO("BLE radio disabled in settings, skipping stack init");
+    }
 
     rng_drv_and_srand_init(); // Random number generator initialization
     bsp_timer_init();         // Initialize timeout timer

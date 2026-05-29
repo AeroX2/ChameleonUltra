@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 This project uses the changelog in accordance with [keepchangelog](http://keepachangelog.com/). Please use this to write notable changes, which is not the same as git commit log...
 
 ## [unreleased][unreleased]
+ - When the BLE radio is switched off (A+B chord), the SoftDevice/BLE stack is now skipped at boot instead of just suppressing advertising, saving the stack init time and idle power; it is brought up on demand when BLE is re-enabled or before flash save. Battery monitoring was decoupled from the BLE init so it keeps working with the radio off.
  - Added IDTECK LF protocol support: tag emulation (PSK1 RF/32) and T55xx clone. No reader path yet; PSK demodulation on the envelope-only receive chain is left for a follow-up.
  - Added PAC/Stanley LF protocol support: read, emulate and T55xx clone (@kevihiiin, @danieltwagner)
  - Fix firmware application USB serial number (@taichunmin)

@@ -64,9 +64,14 @@ void settings_init_double_button_press_config(void) {
     config.button_b_double = SettingsButtonDisable;
 }
 
-// add on version8
+// add on version8 (default updated in version9 to toggle the BLE radio)
 void settings_init_chord_button_press_config(void) {
-    config.button_chord = SettingsButtonDisable;
+    config.button_chord = SettingsButtonToggleBle;
+}
+
+// add on version9
+void settings_init_ble_radio_enable_config(void) {
+    config.ble_radio_enable = true;
 }
 
 void settings_init_config(void) {
@@ -79,6 +84,7 @@ void settings_init_config(void) {
     settings_init_sleep_timeout_config();
     settings_init_double_button_press_config();
     settings_init_chord_button_press_config();
+    settings_init_ble_radio_enable_config();
 }
 
 void settings_migrate(void) {
@@ -107,6 +113,15 @@ void settings_migrate(void) {
 
         case 7:
             settings_init_chord_button_press_config();
+
+        case 8:
+            settings_init_ble_radio_enable_config();
+            // The chord binding was effectively new in version8; adopt the
+            // version9 BLE-toggle default unless the user already chose a
+            // different chord action.
+            if (config.button_chord == SettingsButtonDisable) {
+                config.button_chord = SettingsButtonToggleBle;
+            }
 
             /*
              * Add new migration steps ABOVE THIS COMMENT
@@ -383,6 +398,14 @@ bool settings_get_ble_pairing_enable(void) {
 
 bool settings_get_ble_pairing_enable_first_load(void) {
     return m_ble_pairing_enable_first_load_value;
+}
+
+void settings_set_ble_radio_enable(bool enable) {
+    config.ble_radio_enable = enable;
+}
+
+bool settings_get_ble_radio_enable(void) {
+    return config.ble_radio_enable;
 }
 
 uint32_t settings_get_sleep_timeout(void) {

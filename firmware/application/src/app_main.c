@@ -1015,6 +1015,21 @@ static void btn_fn_copy_ic_uid(void) {
 
 /**@brief Execute the corresponding logic based on the functional settings of the buttons.
  */
+// Toggle the BLE radio (advertising) on/off and persist the choice to flash.
+// Bound to the A+B chord by default (see settings_init_chord_button_press_config).
+static void btn_fn_toggle_ble(void) {
+    bool enable = !settings_get_ble_radio_enable();
+    settings_set_ble_radio_enable(enable);
+    settings_save_config();
+    if (enable) {
+        NRF_LOG_INFO("BLE radio enabled");
+        advertising_start(false);
+    } else {
+        NRF_LOG_INFO("BLE radio disabled");
+        advertising_stop();
+    }
+}
+
 static void run_button_function_by_settings(settings_button_function_t sbf) {
     switch (sbf) {
         case SettingsButtonCycleSlot:
@@ -1085,6 +1100,10 @@ static void run_button_function_by_settings(settings_button_function_t sbf) {
 
         case SettingsButtonShowBattery:
             show_battery();
+            break;
+
+        case SettingsButtonToggleBle:
+            btn_fn_toggle_ble();
             break;
 
         default:

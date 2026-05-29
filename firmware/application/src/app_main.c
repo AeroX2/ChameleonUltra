@@ -54,7 +54,10 @@ APP_TIMER_DEF(m_button_a_dblclick_timer);   // Awaiting second-click window (A)
 APP_TIMER_DEF(m_button_b_dblclick_timer);   // Awaiting second-click window (B)
 
 #define BUTTON_LONG_HOLD_MS 1000
-#define BUTTON_DBLCLICK_WINDOW_MS 250
+// Window to wait for a second click before dispatching a single-click. Kept
+// short so single presses (e.g. slot switching) stay snappy; trades a little
+// double-click timing tolerance for lower single-click latency.
+#define BUTTON_DBLCLICK_WINDOW_MS 200
 #define BUTTON_CHORD_WINDOW_MS 80
 
 static bool m_is_b_btn_press = false;

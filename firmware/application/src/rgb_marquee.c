@@ -270,6 +270,12 @@ static void rgb_marquee_slot_switch_pwm_callback(nrfx_pwm_evt_type_t event_type)
     }
 }
 void rgb_marquee_slot_switch(uint8_t led_down, uint8_t color_led_down, uint8_t led_up, uint8_t color_led_up) {
+    // Coarsen the cross-fade step (was 1) so each ramp runs ~11 frames instead
+    // of ~99. This cuts the blocking time of the slot switch from ~250ms to well
+    // under ~80ms (sharply reducing input lag) while the LED still visibly fades
+    // rather than jumping. light_level is int16_t and clamped at the bounds so it
+    // still reaches 0 / 99 exactly without under/overflow.
+    const int16_t LIGHT_FADE_STEP = 10;
     int16_t light_level = 99; //ledBrightnessValue
     uint32_t *led_pins = hw_get_led_array();
     if (led_down >= 0 && led_down <= 7) {
@@ -296,7 +302,14 @@ void rgb_marquee_slot_switch(uint8_t led_down, uint8_t color_led_down, uint8_t l
             while (callback_waiting == 0); //Waiting for the output of the PWM module to complete
             bsp_delay_us(1234);
             callback_waiting = 0;
-            light_level --;
+            // Coarse step down; clamp the final frame so it lands exactly on 0.
+            if (light_level == 0) {
+                break;
+            }
+            light_level -= LIGHT_FADE_STEP;
+            if (light_level < 0) {
+                light_level = 0;
+            }
         }
     }
     if (led_up >= 0 && led_up <= 7) {
@@ -324,7 +337,14 @@ void rgb_marquee_slot_switch(uint8_t led_down, uint8_t color_led_down, uint8_t l
             while (callback_waiting == 0); //Waiting for the output of the PWM module to complete
             bsp_delay_us(1234);
             callback_waiting = 0;
-            light_level ++;
+            // Coarse step up; clamp the final frame so it lands exactly on 99.
+            if (light_level == 99) {
+                break;
+            }
+            light_level += LIGHT_FADE_STEP;
+            if (light_level > 99) {
+                light_level = 99;
+            }
         }
     }
 }

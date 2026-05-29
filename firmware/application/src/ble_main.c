@@ -588,6 +588,11 @@ static void whitelist_set(pm_peer_id_list_skip_t skip) {
 /**@brief Function for starting advertising.
  */
 void advertising_start(bool erase_bonds) {
+    // Master BLE radio switch: when disabled by the user, never advertise.
+    if (!settings_get_ble_radio_enable()) {
+        NRF_LOG_INFO("BLE radio disabled in settings, skipping advertising.");
+        return;
+    }
     if (erase_bonds == true && settings_get_ble_pairing_enable_first_load()) {
         // Advertising is started by PM_EVT_PEERS_DELETE_SUCCEEDED event.
         // So we don't call `ble_advertising_start()` after `delete_bonds_all()`.

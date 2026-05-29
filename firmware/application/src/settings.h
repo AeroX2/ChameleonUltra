@@ -5,7 +5,7 @@
 
 #include "utils.h"
 
-#define SETTINGS_CURRENT_VERSION 8
+#define SETTINGS_CURRENT_VERSION 9
 #define SETTINGS_SLEEP_TIMEOUT_DEFAULT_S 8   // default wake timeout in seconds (matches SLEEP_DELAY_MS_BUTTON_WAKEUP)
 #define SETTINGS_SLEEP_TIMEOUT_MIN_S      5
 #define SETTINGS_SLEEP_TIMEOUT_MAX_S      60
@@ -33,6 +33,8 @@ typedef enum {
     SettingsButtonShowBattery = 4U,
     // Toggle NFC field generator on/off (Ultra only, must be in reader mode)
     SettingsButtonNfcFieldGenerator = 5U,
+    // Toggle the BLE radio (advertising) on/off; the choice is persisted to flash
+    SettingsButtonToggleBle = 6U,
 } settings_button_function_t;
 
 typedef struct ALIGN_U32 {
@@ -41,7 +43,8 @@ typedef struct ALIGN_U32 {
     // 1 byte
     uint8_t animation_config : 2;
     uint8_t ble_pairing_enable : 1;
-    uint8_t reserved0 : 5; // If you are add switch field, reallocating me.
+    uint8_t ble_radio_enable : 1; // add on version9: master BLE advertising on/off
+    uint8_t reserved0 : 4; // If you are add switch field, reallocating me.
 
     // 1 byte
     uint8_t button_a_press : 4;
@@ -95,6 +98,9 @@ void settings_set_ble_connect_key(uint8_t *key);
 void settings_set_ble_pairing_enable(bool enable);
 bool settings_get_ble_pairing_enable(void);
 bool settings_get_ble_pairing_enable_first_load(void);
+void settings_set_ble_radio_enable(bool enable);
+bool settings_get_ble_radio_enable(void);
+void settings_init_ble_radio_enable_config(void);
 uint32_t settings_get_sleep_timeout(void);
 void settings_set_sleep_timeout(uint8_t seconds);
 void settings_init_sleep_timeout_config(void);

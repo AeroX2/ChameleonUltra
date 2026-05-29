@@ -44,6 +44,8 @@ NRF_LOG_MODULE_REGISTER();
 
 #if defined(PROJECT_CHAMELEON_ULTRA)
 #include "rc522.h"
+#include "lf_reader_main.h"
+#include "nfc_mf1.h"
 #endif
 
 // Defining soft timers
@@ -52,10 +54,23 @@ APP_TIMER_DEF(m_button_a_long_press_timer); // Per-button long-hold detection (A
 APP_TIMER_DEF(m_button_b_long_press_timer); // Per-button long-hold detection (B)
 APP_TIMER_DEF(m_button_a_dblclick_timer);   // Awaiting second-click window (A)
 APP_TIMER_DEF(m_button_b_dblclick_timer);   // Awaiting second-click window (B)
+APP_TIMER_DEF(m_write_confirm_timeout);     // Per-step timeout for write-confirm
 
 #define BUTTON_LONG_HOLD_MS 1000
 #define BUTTON_DBLCLICK_WINDOW_MS 250
 #define BUTTON_CHORD_WINDOW_MS 80
+#define WRITE_CONFIRM_STEP_TIMEOUT_MS 5000
+
+// Write-to-card requires a confirmation sequence (A short -> B short -> A+B
+// chord) before performing the actual write. While armed, all button events
+// are routed to the confirm state machine instead of normal bindings.
+typedef enum {
+    WRITE_CONFIRM_IDLE = 0,
+    WRITE_CONFIRM_EXPECT_A,
+    WRITE_CONFIRM_EXPECT_B,
+    WRITE_CONFIRM_EXPECT_CHORD,
+} write_confirm_state_t;
+static write_confirm_state_t m_write_confirm_state = WRITE_CONFIRM_IDLE;
 
 static bool m_is_b_btn_press = false;
 static bool m_is_a_btn_press = false;
@@ -454,6 +469,12 @@ static void button_init(void) {
     APP_ERROR_CHECK(err_code);
     err_code = app_timer_create(&m_button_b_dblclick_timer, APP_TIMER_MODE_SINGLE_SHOT, timer_button_b_dblclick_handle);
     APP_ERROR_CHECK(err_code);
+
+#if defined(PROJECT_CHAMELEON_ULTRA)
+    // Write-confirm per-step timeout.
+    err_code = app_timer_create(&m_write_confirm_timeout, APP_TIMER_MODE_SINGLE_SHOT, timer_write_confirm_timeout_handle);
+    APP_ERROR_CHECK(err_code);
+#endif
 
     // Configure SENSE mode, select false for sense configuration
     nrf_drv_gpiote_in_config_t in_config = NRFX_GPIOTE_CONFIG_IN_SENSE_TOGGLE(false);
@@ -1013,6 +1034,218 @@ static void btn_fn_copy_ic_uid(void) {
     }
 }
 
+// ----- Write current slot to a card (with A,B,A+B confirm sequence) -----
+//
+// Performs the actual write after the confirmation chord has been entered.
+// Auto-picks based on which sense types are enabled in the slot:
+//   - HF (MFC 1K): scan for a target card, try authenticating each sector
+//     with the default key 0xFFFFFFFFFFFF, write blocks that auth succeeds.
+//     Limited to cards still using the default key (most blank/factory
+//     magic cards). Gen1A magic-card unlock is out of scope for this cut.
+//   - LF (EM410x): use write_em410x_to_t55xx with the default T55xx
+//     password and default-empty old-keys list — works on blank T55xx tags.
+// Other tag types are skipped silently.
+//
+// Returns true if any write succeeded.
+
+static bool write_current_slot_hf_mfc1k(void) {
+    tag_data_buffer_t *buffer = get_buffer_by_tag_type(TAG_TYPE_MIFARE_1024);
+    if (buffer == NULL) return false;
+    nfc_tag_mf1_information_t *p_info = (nfc_tag_mf1_information_t *)buffer->buffer;
+
+    pcd_14a_reader_antenna_on();
+    bsp_delay_ms(8);
+
+    picc_14a_tag_t tag;
+    if (pcd_14a_reader_scan_auto(&tag) != STATUS_HF_TAG_OK) {
+        pcd_14a_reader_antenna_off();
+        NRF_LOG_INFO("WRITE: no target HF card");
+        return false;
+    }
+    if (tag.sak != 0x08) {
+        pcd_14a_reader_antenna_off();
+        NRF_LOG_INFO("WRITE: target SAK 0x%02X is not MFC 1K", tag.sak);
+        return false;
+    }
+
+    uint8_t default_key[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+    uint8_t blocks_written = 0;
+
+    for (uint8_t sector = 0; sector < 16; sector++) {
+        uint8_t first_block = sector * 4;
+        // Re-select before each sector auth — auth state doesn't survive.
+        if (pcd_14a_reader_scan_auto(&tag) != STATUS_HF_TAG_OK) break;
+        if (pcd_14a_reader_mf1_auth(&tag, PICC_AUTHENT1A, first_block, default_key) != STATUS_HF_TAG_OK) {
+            continue;
+        }
+        for (uint8_t b_off = 0; b_off < 4; b_off++) {
+            uint8_t block_num = first_block + b_off;
+            // Skip block 0 — it's the manufacturer block and writing it
+            // requires Gen1A unlock or a Gen2 magic backdoor key, neither
+            // of which we implement here.
+            if (block_num == 0) continue;
+            if (pcd_14a_reader_mf1_write(block_num, p_info->memory[block_num]) == STATUS_HF_TAG_OK) {
+                blocks_written++;
+            }
+        }
+        bsp_wdt_feed();
+    }
+
+    pcd_14a_reader_antenna_off();
+    NRF_LOG_INFO("WRITE: %d blocks written to MFC 1K", blocks_written);
+    return blocks_written > 0;
+}
+
+static bool write_current_slot_lf_em410x(void) {
+    tag_data_buffer_t *buffer = get_buffer_by_tag_type(TAG_TYPE_EM410X);
+    if (buffer == NULL) return false;
+
+    // EM410x slot stores the 5-byte UID directly in the buffer. T55xx blank
+    // cards use password 0x00000000 by default; pass it as the "new key" too
+    // (write_em410x_to_t55xx will program the card to use it).
+    uint8_t default_key[4] = { 0x00, 0x00, 0x00, 0x00 };
+    uint8_t status = write_em410x_to_t55xx(buffer->buffer, default_key, default_key, 1);
+    NRF_LOG_INFO("WRITE: EM410x to T55xx status=%d", status);
+    return status == STATUS_LF_TAG_OK;
+}
+
+static void btn_fn_write_current_slot(void) {
+    uint8_t slot = tag_emulation_get_slot();
+    tag_slot_specific_type_t types;
+    tag_emulation_get_specific_types_by_slot(slot, &types);
+
+    bool was_in_reader_mode = get_device_mode() == DEVICE_MODE_READER;
+    if (!was_in_reader_mode) {
+        reader_mode_enter();
+        bsp_delay_ms(8);
+    }
+
+    bool wrote_anything = false;
+    if (types.tag_hf == TAG_TYPE_MIFARE_1024) {
+        wrote_anything |= write_current_slot_hf_mfc1k();
+    }
+    if (types.tag_lf == TAG_TYPE_EM410X) {
+        wrote_anything |= write_current_slot_lf_em410x();
+    }
+
+    if (wrote_anything) {
+        offline_status_ok();
+    } else {
+        NRF_LOG_INFO("WRITE: nothing written (unsupported slot type or no target card)");
+        offline_status_error();
+    }
+
+    if (!was_in_reader_mode) {
+        tag_mode_enter();
+    }
+}
+
+// ----- Write-confirm state machine -----
+//
+// Lights step LEDs progressively as the user enters A, B, then A+B. Any wrong
+// input or a per-step timeout resets the state machine to IDLE.
+
+static void write_confirm_set_step_leds(uint8_t step) {
+    uint32_t *led_pins = hw_get_led_array();
+    set_slot_light_color(RGB_YELLOW);
+    for (int i = 0; i < RGB_LIST_NUM; i++) {
+        nrf_gpio_pin_clear(led_pins[i]);
+    }
+    for (int i = 0; i < step && i < RGB_LIST_NUM; i++) {
+        nrf_gpio_pin_set(led_pins[i]);
+    }
+}
+
+static void write_confirm_reset(bool error_flash) {
+    m_write_confirm_state = WRITE_CONFIRM_IDLE;
+    app_timer_stop(m_write_confirm_timeout);
+    if (error_flash) {
+        NRF_LOG_INFO("WRITE: confirm reset (wrong input or timeout)");
+        offline_status_error();
+    }
+    light_up_by_slot();
+}
+
+static void timer_write_confirm_timeout_handle(void *arg) {
+    (void)arg;
+    write_confirm_reset(true);
+}
+
+static void btn_fn_arm_write_confirm(void) {
+    NRF_LOG_INFO("WRITE: armed, expect short-A");
+    m_write_confirm_state = WRITE_CONFIRM_EXPECT_A;
+    write_confirm_set_step_leds(0);
+    app_timer_start(m_write_confirm_timeout, APP_TIMER_TICKS(WRITE_CONFIRM_STEP_TIMEOUT_MS), NULL);
+}
+
+// Consume all in-flight button event flags. Used after any wrong/right step
+// to make sure stale flags don't leak into the next state.
+static void write_confirm_clear_pending(void) {
+    m_is_a_btn_release = false;
+    m_is_b_btn_release = false;
+    m_a_long_hold_pending = false;
+    m_b_long_hold_pending = false;
+    m_a_dblclick_pending = false;
+    m_b_dblclick_pending = false;
+    m_chord_pending = false;
+}
+
+// Returns true if it consumed events (so button_press_process should bail).
+static bool write_confirm_dispatch(void) {
+    // EVT_CHORD: only valid in EXPECT_CHORD state.
+    if (m_chord_pending) {
+        if (m_write_confirm_state == WRITE_CONFIRM_EXPECT_CHORD) {
+            write_confirm_clear_pending();
+            app_timer_stop(m_write_confirm_timeout);
+            write_confirm_set_step_leds(3);
+            m_write_confirm_state = WRITE_CONFIRM_IDLE;
+            btn_fn_write_current_slot();
+            return true;
+        }
+        write_confirm_clear_pending();
+        write_confirm_reset(true);
+        return true;
+    }
+    // EVT_LONG_HOLD or EVT_DOUBLE_CLICK: always wrong input.
+    if (m_a_long_hold_pending || m_b_long_hold_pending ||
+            m_a_dblclick_pending || m_b_dblclick_pending) {
+        write_confirm_clear_pending();
+        write_confirm_reset(true);
+        return true;
+    }
+    // EVT_SHORT_CLICK A: valid only in EXPECT_A.
+    if (m_is_a_btn_release) {
+        if (m_write_confirm_state == WRITE_CONFIRM_EXPECT_A) {
+            write_confirm_clear_pending();
+            m_write_confirm_state = WRITE_CONFIRM_EXPECT_B;
+            write_confirm_set_step_leds(1);
+            app_timer_stop(m_write_confirm_timeout);
+            app_timer_start(m_write_confirm_timeout,
+                            APP_TIMER_TICKS(WRITE_CONFIRM_STEP_TIMEOUT_MS), NULL);
+            return true;
+        }
+        write_confirm_clear_pending();
+        write_confirm_reset(true);
+        return true;
+    }
+    // EVT_SHORT_CLICK B: valid only in EXPECT_B.
+    if (m_is_b_btn_release) {
+        if (m_write_confirm_state == WRITE_CONFIRM_EXPECT_B) {
+            write_confirm_clear_pending();
+            m_write_confirm_state = WRITE_CONFIRM_EXPECT_CHORD;
+            write_confirm_set_step_leds(2);
+            app_timer_stop(m_write_confirm_timeout);
+            app_timer_start(m_write_confirm_timeout,
+                            APP_TIMER_TICKS(WRITE_CONFIRM_STEP_TIMEOUT_MS), NULL);
+            return true;
+        }
+        write_confirm_clear_pending();
+        write_confirm_reset(true);
+        return true;
+    }
+    return false;
+}
+
 #endif
 
 /**@brief Execute the corresponding logic based on the functional settings of the buttons.
@@ -1029,6 +1262,9 @@ static void run_button_function_by_settings(settings_button_function_t sbf) {
 #if defined(PROJECT_CHAMELEON_ULTRA)
         case SettingsButtonCloneIcUid:
             btn_fn_copy_ic_uid();
+            break;
+        case SettingsButtonWriteToCard:
+            btn_fn_arm_write_confirm();
             break;
         case SettingsButtonNfcFieldGenerator:
             if (!m_is_field_on) {
@@ -1100,6 +1336,20 @@ static void run_button_function_by_settings(settings_button_function_t sbf) {
 extern bool g_usb_led_marquee_enable;
 static void button_press_process(void) {
     bool dispatched = false;
+
+#if defined(PROJECT_CHAMELEON_ULTRA)
+    // While write-confirm is armed, intercept ALL button events and route
+    // them to the confirmation state machine instead of normal bindings.
+    if (m_write_confirm_state != WRITE_CONFIRM_IDLE) {
+        if (write_confirm_dispatch()) {
+            g_usb_led_marquee_enable = false;
+            if (!m_is_field_on) {
+                sleep_timer_start(SLEEP_DELAY_MS_BUTTON_CLICK);
+            }
+        }
+        return;
+    }
+#endif
 
     // Chord event fires immediately on detection (when the second button is
     // pressed within the chord window of the first). Per-button events are

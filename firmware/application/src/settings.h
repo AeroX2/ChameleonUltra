@@ -33,6 +33,11 @@ typedef enum {
     SettingsButtonShowBattery = 4U,
     // Toggle NFC field generator on/off (Ultra only, must be in reader mode)
     SettingsButtonNfcFieldGenerator = 5U,
+    // Write the currently-active slot's contents to a physical card. Requires
+    // an A -> B -> A+B confirmation sequence first to guard against accidental
+    // writes. Writes HF (MFC 1K with default keys) and/or LF (EM410x via
+    // T55xx) depending on which is enabled in the slot.
+    SettingsButtonWriteToCard = 6U,
 } settings_button_function_t;
 
 typedef struct ALIGN_U32 {

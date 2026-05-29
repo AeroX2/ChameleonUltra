@@ -66,7 +66,10 @@ void settings_init_double_button_press_config(void) {
 
 // add on version8 (default updated in version9 to toggle the BLE radio)
 void settings_init_chord_button_press_config(void) {
-    config.button_chord = SettingsButtonToggleBle;
+    // Default the A+B chord to "show battery". The BLE-off path currently has a
+    // boot-stability issue, so the chord must not default to toggling BLE.
+    // Users can rebind it from the client/GUI.
+    config.button_chord = SettingsButtonShowBattery;
 }
 
 // add on version9
@@ -116,12 +119,21 @@ void settings_migrate(void) {
 
         case 8:
             settings_init_ble_radio_enable_config();
-            // The chord binding was effectively new in version8; adopt the
-            // version9 BLE-toggle default unless the user already chose a
-            // different chord action.
+            // v8 had no chord binding. Seed a benign default if the user hadn't
+            // chosen one (the original v9 toggle-BLE default is replaced below).
             if (config.button_chord == SettingsButtonDisable) {
-                config.button_chord = SettingsButtonToggleBle;
+                config.button_chord = SettingsButtonShowBattery;
             }
+
+        case 9:
+            // v9 shipped the A+B chord bound to "toggle BLE". The BLE-off path
+            // can leave the device stuck on a boot fault (radio disabled in
+            // flash). Re-point that chord to a safe action and force the radio
+            // back on so affected devices recover automatically on update.
+            if (config.button_chord == SettingsButtonToggleBle) {
+                config.button_chord = SettingsButtonShowBattery;
+            }
+            config.ble_radio_enable = true;
 
             /*
              * Add new migration steps ABOVE THIS COMMENT

@@ -15,6 +15,8 @@ NRF_LOG_MODULE_REGISTER();
 
 #define PWM_MAX 1000 // PWM Maximum
 #define LIGHT_LEVEL_MAX 99 // The maximum value of brightness level
+// Total number of frames in the symmetric in/out animation (slide+solid+half+slide)
+#define RGB_SYMMETRIC_STEPS (2 + 6 + 4 + 2)
 static nrf_drv_pwm_t pwm0_ins = NRF_DRV_PWM_INSTANCE(1);
 nrf_pwm_values_individual_t pwm_sequ_val; // PWM control 4 channels in the independent mode
 nrf_pwm_sequence_t const seq = { //Configure the structure of PWM output
@@ -32,6 +34,7 @@ nrf_drv_pwm_config_t pwm_config = {//PWM configuration structure
     .step_mode = NRF_PWM_STEP_AUTO
 };
 static autotimer *timer;
+static autotimer *boot_timer;
 static uint8_t rgb_marquee_usb_idle_step = 0;
 static uint8_t rgb_marquee_usb_idle_color = RGB_RED;
 static uint8_t rgb_marquee_usb_open_step = 0;
@@ -40,6 +43,7 @@ extern bool g_usb_led_marquee_enable;
 
 void rgb_marquee_init(void) {
     timer = bsp_obtain_timer(0);
+    boot_timer = bsp_obtain_timer(0);
 }
 
 void rgb_marquee_stop(void) {
@@ -171,8 +175,10 @@ void rgb_marquee_usb_open_symmetric(uint8_t color) {
 // 4 Lights Dragon Tail horizontal movement cycle (not returning), including the disappearance of the tail and the head of the head slowly
 //dir 0-from 1 card slot to 8 card slot, 1-from 8 card slot to 1 card slot (Direction, the end point is determined by the END parameter)
 //end To scan the number of lamps, decide the final animation area with the direction
-void rgb_marquee_sweep_to(uint8_t color, uint8_t dir, uint8_t end) {
-    uint8_t startled = 0;
+// Render a single frame (one position of `startled`) of the "sweep to" animation.
+// Extracted from the blocking loop so both the blocking wrapper below and the
+// non-blocking boot engine can share the exact same per-frame rendering.
+static void sweep_to_render_frame(uint8_t color, uint8_t dir, uint8_t end, uint8_t startled) {
     uint8_t setled = 0;
     uint8_t leds2turnon = 0;
     uint8_t i = 0;
@@ -190,58 +196,64 @@ void rgb_marquee_sweep_to(uint8_t color, uint8_t dir, uint8_t end) {
     pwm_sequ_val.channel_2 = 600;
     pwm_sequ_val.channel_1 = 880;
     pwm_sequ_val.channel_0 = 980; // The darkest
+
+    //Close all channels
+    pwm_config.output_pins[0] = NRF_DRV_PWM_PIN_NOT_USED;
+    pwm_config.output_pins[1] = NRF_DRV_PWM_PIN_NOT_USED;
+    pwm_config.output_pins[2] = NRF_DRV_PWM_PIN_NOT_USED;
+    pwm_config.output_pins[3] = NRF_DRV_PWM_PIN_NOT_USED;
+
+    setled = startled;
+    if (setled < 3) { //During the positive period, only the first few LEDs can be on during 0, 1, 2
+        //First determine that you can light a few lights
+        leds2turnon = setled + 1; //1,2,3
+        //Then set the PWM output channel
+        for (i = 0; i < leds2turnon; i++) {
+            pwm_config.output_pins[3 - i] = led_pins_arr[setled - i];
+        }
+    } else if (setled <= 7) { //During the positive period, it can light up 4 LEDs when it is greater than 4 less than 4
+        // Set the PWM output channel
+        for (i = 0; i < 4; i++) {
+            pwm_config.output_pins[3 - i] = led_pins_arr[setled];
+            setled--;
+        }
+    } else if (setled > 7 && setled <= 10) { // During the positive period, only a few LEDs can be lit at 8.9.10
+        //First determine that you can light a few lights
+        leds2turnon = 11 - setled;
+        //Then set the PWM output channel
+        for (i = 0; i < leds2turnon; i++) {
+            pwm_config.output_pins[i] = led_pins_arr[setled - 3 + i];
+        }
+
+    } else { //During the positive period, reach 11
+        //
+    }
+    //Process stop condition
+    if (startled >= end) {
+        //Calculation needs to hide a few lights
+        leds2turnon = startled - end;
+        //Hidden all those who go out
+        for (i = 0; i < leds2turnon; i++) {
+            pwm_config.output_pins[3 - i] = NRF_DRV_PWM_PIN_NOT_USED;
+        }
+        //Re -setting the specified position is the brightest
+        if (end <= 7) {
+            pwm_config.output_pins[3] = led_pins_arr[end];
+        }
+
+    }
+    nrfx_pwm_uninit(&pwm0_ins);
+    nrf_drv_pwm_init(&pwm0_ins, &pwm_config, NULL);
+    nrf_drv_pwm_simple_playback(&pwm0_ins, &seq, 1, NRF_DRV_PWM_FLAG_LOOP);
+}
+
+void rgb_marquee_sweep_to(uint8_t color, uint8_t dir, uint8_t end) {
+    uint8_t startled = 0;
     while (1) {
-        //Close all channels
-        pwm_config.output_pins[0] = NRF_DRV_PWM_PIN_NOT_USED;
-        pwm_config.output_pins[1] = NRF_DRV_PWM_PIN_NOT_USED;
-        pwm_config.output_pins[2] = NRF_DRV_PWM_PIN_NOT_USED;
-        pwm_config.output_pins[3] = NRF_DRV_PWM_PIN_NOT_USED;
-
-        setled = startled;
-        if (setled < 3) { //During the positive period, only the first few LEDs can be on during 0, 1, 2
-            //First determine that you can light a few lights
-            leds2turnon = setled + 1; //1,2,3
-            //Then set the PWM output channel
-            for (i = 0; i < leds2turnon; i++) {
-                pwm_config.output_pins[3 - i] = led_pins_arr[setled - i];
-            }
-        } else if (setled <= 7) { //During the positive period, it can light up 4 LEDs when it is greater than 4 less than 4
-            // Set the PWM output channel
-            for (i = 0; i < 4; i++) {
-                pwm_config.output_pins[3 - i] = led_pins_arr[setled];
-                setled--;
-            }
-        } else if (setled > 7 && setled <= 10) { // During the positive period, only a few LEDs can be lit at 8.9.10
-            //First determine that you can light a few lights
-            leds2turnon = 11 - setled;
-            //Then set the PWM output channel
-            for (i = 0; i < leds2turnon; i++) {
-                pwm_config.output_pins[i] = led_pins_arr[setled - 3 + i];
-            }
-
-        } else { //During the positive period, reach 11
-            //
-        }
-        //Process stop condition
-        if (startled >= end) {
-            //Calculation needs to hide a few lights
-            leds2turnon = startled - end;
-            //Hidden all those who go out
-            for (i = 0; i < leds2turnon; i++) {
-                pwm_config.output_pins[3 - i] = NRF_DRV_PWM_PIN_NOT_USED;
-            }
-            //Re -setting the specified position is the brightest
-            if (end <= 7) {
-                pwm_config.output_pins[3] = led_pins_arr[end];
-            }
-
-        }
-        nrfx_pwm_uninit(&pwm0_ins);
-        nrf_drv_pwm_init(&pwm0_ins, &pwm_config, NULL);
-        nrf_drv_pwm_simple_playback(&pwm0_ins, &seq, 1, NRF_DRV_PWM_FLAG_LOOP);
+        sweep_to_render_frame(color, dir, end, startled);
         bsp_delay_ms(40);
         startled++;
-        if (startled - end >= 4)break;
+        if ((int)startled - (int)end >= 4)break;
         if (startled > 11)break;
     }
 }
@@ -395,8 +407,8 @@ void rgb_marquee_sweep_fade(uint8_t color, uint8_t dir, uint8_t end, uint8_t sta
 //color The color of the lit LED 0-R,1-G,2-B
 //start Start the lamp position
 //stop Stop lamp position
-void rgb_marquee_sweep_from_to(uint8_t color, uint8_t start, uint8_t stop) {
-    int8_t setled = start;
+// Render a single frame (one `setled` position) of the "sweep from-to" animation.
+static void sweep_from_to_render_frame(uint8_t color, int8_t setled) {
     uint32_t *led_pins = hw_get_led_array();
     //Set the brightness
     pwm_sequ_val.channel_3 = 0;
@@ -405,16 +417,21 @@ void rgb_marquee_sweep_from_to(uint8_t color, uint8_t start, uint8_t stop) {
     pwm_sequ_val.channel_0 = get_pwmduty(99);
     //Adjust the color
     set_slot_light_color(color);
+    //Close all channels
+    pwm_config.output_pins[0] = NRF_DRV_PWM_PIN_NOT_USED;
+    pwm_config.output_pins[1] = NRF_DRV_PWM_PIN_NOT_USED;
+    pwm_config.output_pins[2] = NRF_DRV_PWM_PIN_NOT_USED;
+    pwm_config.output_pins[3] = NRF_DRV_PWM_PIN_NOT_USED;
+    pwm_config.output_pins[0] = led_pins[setled];
+    nrfx_pwm_uninit(&pwm0_ins);
+    nrf_drv_pwm_init(&pwm0_ins, &pwm_config, NULL);
+    nrf_drv_pwm_simple_playback(&pwm0_ins, &seq, 1, NRF_DRV_PWM_FLAG_LOOP);
+}
+
+void rgb_marquee_sweep_from_to(uint8_t color, uint8_t start, uint8_t stop) {
+    int8_t setled = start;
     while (start < stop ? (setled < stop + 1) : (setled > (int8_t)stop - 1)) {
-        //Close all channels
-        pwm_config.output_pins[0] = NRF_DRV_PWM_PIN_NOT_USED;
-        pwm_config.output_pins[1] = NRF_DRV_PWM_PIN_NOT_USED;
-        pwm_config.output_pins[2] = NRF_DRV_PWM_PIN_NOT_USED;
-        pwm_config.output_pins[3] = NRF_DRV_PWM_PIN_NOT_USED;
-        pwm_config.output_pins[0] = led_pins[setled];
-        nrfx_pwm_uninit(&pwm0_ins);
-        nrf_drv_pwm_init(&pwm0_ins, &pwm_config, NULL);
-        nrf_drv_pwm_simple_playback(&pwm0_ins, &seq, 1, NRF_DRV_PWM_FLAG_LOOP);
+        sweep_from_to_render_frame(color, setled);
         bsp_delay_ms(50);
         setled = start < stop ? setled + 1 : setled - 1;
     }
@@ -535,7 +552,8 @@ void rgb_marquee_usb_idle(void) {
     }
 }
 
-void rgb_marquee_symmetric_out(uint8_t color, uint8_t slot) {
+// Render a single `step` frame of the symmetric "out" animation.
+static void symmetric_out_render_frame(uint8_t color, uint8_t slot, uint8_t step) {
     uint32_t *led_pins = hw_get_led_array();
 
     //Adjust the color
@@ -548,54 +566,60 @@ void rgb_marquee_symmetric_out(uint8_t color, uint8_t slot) {
     const uint8_t half_leds = 4;
     const uint8_t slide_leds = 2;
     const uint8_t solid_leds = 6;
-    for (uint8_t step = 0; step < slide_leds + solid_leds + half_leds + slide_leds; step++) {
-        //Close all channels
-        pwm_config.output_pins[0] = NRF_DRV_PWM_PIN_NOT_USED;
-        pwm_config.output_pins[1] = NRF_DRV_PWM_PIN_NOT_USED;
-        pwm_config.output_pins[2] = NRF_DRV_PWM_PIN_NOT_USED;
-        pwm_config.output_pins[3] = NRF_DRV_PWM_PIN_NOT_USED;
-        for (uint8_t i = 0; i < RGB_LIST_NUM; i++) {
-            nrf_gpio_pin_clear(led_pins[i]);
-        }
 
-        const uint8_t length = slide_leds + solid_leds + slide_leds;
-        for (uint8_t offset = 0; offset < length; offset++) {
-            if (step < offset || step >= (offset + half_leds)) continue;
-            switch (offset) {
-                case 0:
-                case length - 1:
-                    pwm_config.output_pins[0] = led_pins[3 - step + offset];
-                    pwm_config.output_pins[3] = led_pins[4 + step - offset];
-                    break;
-                case 1:
-                case length - 2:
-                    pwm_config.output_pins[1] = led_pins[3 - step + offset];
-                    pwm_config.output_pins[2] = led_pins[4 + step - offset];
-                    break;
-                default:
-                    nrf_gpio_pin_set(led_pins[3 - step + offset]);
-                    nrf_gpio_pin_set(led_pins[4 + step - offset]);
+    //Close all channels
+    pwm_config.output_pins[0] = NRF_DRV_PWM_PIN_NOT_USED;
+    pwm_config.output_pins[1] = NRF_DRV_PWM_PIN_NOT_USED;
+    pwm_config.output_pins[2] = NRF_DRV_PWM_PIN_NOT_USED;
+    pwm_config.output_pins[3] = NRF_DRV_PWM_PIN_NOT_USED;
+    for (uint8_t i = 0; i < RGB_LIST_NUM; i++) {
+        nrf_gpio_pin_clear(led_pins[i]);
+    }
+
+    const uint8_t length = slide_leds + solid_leds + slide_leds;
+    for (uint8_t offset = 0; offset < length; offset++) {
+        if (step < offset || step >= (offset + half_leds)) continue;
+        switch (offset) {
+            case 0:
+            case length - 1:
+                pwm_config.output_pins[0] = led_pins[3 - step + offset];
+                pwm_config.output_pins[3] = led_pins[4 + step - offset];
+                break;
+            case 1:
+            case length - 2:
+                pwm_config.output_pins[1] = led_pins[3 - step + offset];
+                pwm_config.output_pins[2] = led_pins[4 + step - offset];
+                break;
+            default:
+                nrf_gpio_pin_set(led_pins[3 - step + offset]);
+                nrf_gpio_pin_set(led_pins[4 + step - offset]);
+        }
+    }
+
+    if ((slot <= 3 && slot > (3 - step + slide_leds)) ||
+            (slot >= 4 && slot < (4 + step - slide_leds))) {
+        nrf_gpio_pin_set(led_pins[slot]);
+        for (uint8_t j = 0; j < 4; j++) {
+            if (pwm_config.output_pins[j] == led_pins[slot]) {
+                pwm_config.output_pins[j] = NRF_DRV_PWM_PIN_NOT_USED;
             }
         }
+    }
 
-        if ((slot <= 3 && slot > (3 - step + slide_leds)) ||
-                (slot >= 4 && slot < (4 + step - slide_leds))) {
-            nrf_gpio_pin_set(led_pins[slot]);
-            for (uint8_t j = 0; j < 4; j++) {
-                if (pwm_config.output_pins[j] == led_pins[slot]) {
-                    pwm_config.output_pins[j] = NRF_DRV_PWM_PIN_NOT_USED;
-                }
-            }
-        }
+    nrfx_pwm_uninit(&pwm0_ins);
+    nrf_drv_pwm_init(&pwm0_ins, &pwm_config, NULL);
+    nrf_drv_pwm_simple_playback(&pwm0_ins, &seq, 1, NRF_DRV_PWM_FLAG_LOOP);
+}
 
-        nrfx_pwm_uninit(&pwm0_ins);
-        nrf_drv_pwm_init(&pwm0_ins, &pwm_config, NULL);
-        nrf_drv_pwm_simple_playback(&pwm0_ins, &seq, 1, NRF_DRV_PWM_FLAG_LOOP);
+void rgb_marquee_symmetric_out(uint8_t color, uint8_t slot) {
+    for (uint8_t step = 0; step < RGB_SYMMETRIC_STEPS; step++) {
+        symmetric_out_render_frame(color, slot, step);
         bsp_delay_ms(60);
     }
 }
 
-void rgb_marquee_symmetric_in(uint8_t color, uint8_t slot) {
+// Render a single `step` frame of the symmetric "in" animation.
+static void symmetric_in_render_frame(uint8_t color, uint8_t slot, uint8_t step) {
     uint32_t *led_pins = hw_get_led_array();
 
     //Adjust the color
@@ -608,50 +632,184 @@ void rgb_marquee_symmetric_in(uint8_t color, uint8_t slot) {
     const uint8_t half_leds = 4;
     const uint8_t slide_leds = 2;
     const uint8_t solid_leds = 6;
-    for (uint8_t step = 0; step < slide_leds + solid_leds + half_leds + slide_leds; step++) {
-        //Close all channels
-        pwm_config.output_pins[0] = NRF_DRV_PWM_PIN_NOT_USED;
-        pwm_config.output_pins[1] = NRF_DRV_PWM_PIN_NOT_USED;
-        pwm_config.output_pins[2] = NRF_DRV_PWM_PIN_NOT_USED;
-        pwm_config.output_pins[3] = NRF_DRV_PWM_PIN_NOT_USED;
-        for (uint8_t i = 0; i < RGB_LIST_NUM; i++) {
-            nrf_gpio_pin_clear(led_pins[i]);
-        }
 
-        const uint8_t length = slide_leds + solid_leds + slide_leds;
-        for (uint8_t offset = 0; offset < length; offset++) {
-            if (step < offset || step >= (offset + half_leds)) continue;
-            switch (offset) {
-                case 0:
-                case length - 1:
-                    pwm_config.output_pins[0] = led_pins[0 + step - offset];
-                    pwm_config.output_pins[3] = led_pins[7 - step + offset];
-                    break;
-                case 1:
-                case length - 2:
-                    pwm_config.output_pins[1] = led_pins[0 + step - offset];
-                    pwm_config.output_pins[2] = led_pins[7 - step + offset];
-                    break;
-                default:
-                    nrf_gpio_pin_set(led_pins[0 + step - offset]);
-                    nrf_gpio_pin_set(led_pins[7 - step + offset]);
+    //Close all channels
+    pwm_config.output_pins[0] = NRF_DRV_PWM_PIN_NOT_USED;
+    pwm_config.output_pins[1] = NRF_DRV_PWM_PIN_NOT_USED;
+    pwm_config.output_pins[2] = NRF_DRV_PWM_PIN_NOT_USED;
+    pwm_config.output_pins[3] = NRF_DRV_PWM_PIN_NOT_USED;
+    for (uint8_t i = 0; i < RGB_LIST_NUM; i++) {
+        nrf_gpio_pin_clear(led_pins[i]);
+    }
+
+    const uint8_t length = slide_leds + solid_leds + slide_leds;
+    for (uint8_t offset = 0; offset < length; offset++) {
+        if (step < offset || step >= (offset + half_leds)) continue;
+        switch (offset) {
+            case 0:
+            case length - 1:
+                pwm_config.output_pins[0] = led_pins[0 + step - offset];
+                pwm_config.output_pins[3] = led_pins[7 - step + offset];
+                break;
+            case 1:
+            case length - 2:
+                pwm_config.output_pins[1] = led_pins[0 + step - offset];
+                pwm_config.output_pins[2] = led_pins[7 - step + offset];
+                break;
+            default:
+                nrf_gpio_pin_set(led_pins[0 + step - offset]);
+                nrf_gpio_pin_set(led_pins[7 - step + offset]);
+        }
+    }
+
+    if ((slot <= 3 && slot > (0 + step - slide_leds)) ||
+            (slot >= 4 && slot < (7 - step + slide_leds))) {
+        nrf_gpio_pin_set(led_pins[slot]);
+        for (uint8_t j = 0; j < 4; j++) {
+            if (pwm_config.output_pins[j] == led_pins[slot]) {
+                pwm_config.output_pins[j] = NRF_DRV_PWM_PIN_NOT_USED;
             }
         }
+    }
 
-        if ((slot <= 3 && slot > (0 + step - slide_leds)) ||
-                (slot >= 4 && slot < (7 - step + slide_leds))) {
-            nrf_gpio_pin_set(led_pins[slot]);
-            for (uint8_t j = 0; j < 4; j++) {
-                if (pwm_config.output_pins[j] == led_pins[slot]) {
-                    pwm_config.output_pins[j] = NRF_DRV_PWM_PIN_NOT_USED;
-                }
-            }
-        }
+    nrfx_pwm_uninit(&pwm0_ins);
+    nrf_drv_pwm_init(&pwm0_ins, &pwm_config, NULL);
+    nrf_drv_pwm_simple_playback(&pwm0_ins, &seq, 1, NRF_DRV_PWM_FLAG_LOOP);
+}
 
-        nrfx_pwm_uninit(&pwm0_ins);
-        nrf_drv_pwm_init(&pwm0_ins, &pwm_config, NULL);
-        nrf_drv_pwm_simple_playback(&pwm0_ins, &seq, 1, NRF_DRV_PWM_FLAG_LOOP);
+void rgb_marquee_symmetric_in(uint8_t color, uint8_t slot) {
+    for (uint8_t step = 0; step < RGB_SYMMETRIC_STEPS; step++) {
+        symmetric_in_render_frame(color, slot, step);
         bsp_delay_ms(60);
+    }
+}
+
+// ===================== Non-blocking boot animation engine =====================
+// The boot/wake-up animation used to run as a series of blocking bsp_delay_ms()
+// loops in check_wakeup_src(), stalling the main loop (and delaying tag emulation
+// start) for ~120-200ms. This engine replays the same frames one-at-a-time from
+// the main loop instead, so NFC emulation and button handling stay responsive
+// while the LEDs animate.
+
+typedef struct {
+    uint8_t type;   // RGB_BOOT_* segment type
+    uint8_t color;
+    uint8_t p1;     // sweep_to: dir;  sweep_from_to: start;  symmetric: slot
+    uint8_t p2;     // sweep_to: end;  sweep_from_to: stop;   symmetric: unused
+} boot_seg_t;
+
+#define BOOT_SEG_MAX 3
+
+static boot_seg_t m_boot_segs[BOOT_SEG_MAX];
+static uint8_t m_boot_seg_count = 0;
+static uint8_t m_boot_seg_idx = 0;
+static uint8_t m_boot_frame = 0;
+static bool m_boot_active = false;
+static bool m_boot_force_frame = false;
+static uint8_t m_boot_final_color = 0;
+static void (*m_boot_on_complete)(void) = NULL;
+
+// Per-frame interval (ms) matching the original blocking delays for each type.
+static uint16_t boot_seg_interval(uint8_t type) {
+    switch (type) {
+        case RGB_BOOT_SWEEP_TO:       return 40;
+        case RGB_BOOT_SWEEP_FROM_TO:  return 50;
+        case RGB_BOOT_SYMMETRIC_OUT:
+        case RGB_BOOT_SYMMETRIC_IN:   return 60;
+        default:                      return 40;
+    }
+}
+
+// Render frame `f` of segment `s`; return true if more frames remain after this.
+static bool boot_seg_render(const boot_seg_t *s, uint8_t f) {
+    switch (s->type) {
+        case RGB_BOOT_SWEEP_TO: {
+            sweep_to_render_frame(s->color, s->p1, s->p2, f);
+            uint8_t next = f + 1;
+            return !((int)next - (int)s->p2 >= 4 || next > 11);
+        }
+        case RGB_BOOT_SWEEP_FROM_TO: {
+            uint8_t start = s->p1, stop = s->p2;
+            int8_t setled = (start < stop) ? (int8_t)(start + f) : (int8_t)(start - f);
+            sweep_from_to_render_frame(s->color, setled);
+            int8_t next = (start < stop) ? setled + 1 : setled - 1;
+            return (start < stop) ? (next < (int8_t)stop + 1) : (next > (int8_t)stop - 1);
+        }
+        case RGB_BOOT_SYMMETRIC_OUT:
+            symmetric_out_render_frame(s->color, s->p1, f);
+            return (uint8_t)(f + 1) < RGB_SYMMETRIC_STEPS;
+        case RGB_BOOT_SYMMETRIC_IN:
+            symmetric_in_render_frame(s->color, s->p1, f);
+            return (uint8_t)(f + 1) < RGB_SYMMETRIC_STEPS;
+        default:
+            return false;
+    }
+}
+
+void rgb_marquee_boot_clear(void) {
+    m_boot_seg_count = 0;
+}
+
+void rgb_marquee_boot_push(uint8_t type, uint8_t color, uint8_t p1, uint8_t p2) {
+    if (m_boot_seg_count >= BOOT_SEG_MAX) {
+        return;
+    }
+    m_boot_segs[m_boot_seg_count].type = type;
+    m_boot_segs[m_boot_seg_count].color = color;
+    m_boot_segs[m_boot_seg_count].p1 = p1;
+    m_boot_segs[m_boot_seg_count].p2 = p2;
+    m_boot_seg_count++;
+}
+
+void rgb_marquee_boot_run(uint8_t final_color, void (*on_complete)(void)) {
+    m_boot_final_color = final_color;
+    m_boot_on_complete = on_complete;
+    m_boot_seg_idx = 0;
+    m_boot_frame = 0;
+    if (m_boot_seg_count == 0) {
+        // Nothing to animate; apply the final LED state immediately.
+        m_boot_active = false;
+        set_slot_light_color(final_color);
+        if (on_complete != NULL) {
+            on_complete();
+        }
+        return;
+    }
+    m_boot_active = true;
+    m_boot_force_frame = true;   // render the first frame without waiting an interval
+    bsp_set_timer(boot_timer, 0);
+}
+
+bool rgb_marquee_boot_is_active(void) {
+    return m_boot_active;
+}
+
+void rgb_marquee_boot_process(void) {
+    if (!m_boot_active) {
+        return;
+    }
+    boot_seg_t *s = &m_boot_segs[m_boot_seg_idx];
+    if (!m_boot_force_frame && NO_TIMEOUT_1MS(boot_timer, boot_seg_interval(s->type))) {
+        return;  // frame interval not elapsed yet
+    }
+    m_boot_force_frame = false;
+
+    bool more = boot_seg_render(s, m_boot_frame);
+    bsp_set_timer(boot_timer, 0);
+
+    if (more) {
+        m_boot_frame++;
+        return;
+    }
+    // current segment finished, advance to the next one
+    m_boot_seg_idx++;
+    m_boot_frame = 0;
+    if (m_boot_seg_idx >= m_boot_seg_count) {
+        m_boot_active = false;
+        set_slot_light_color(m_boot_final_color);
+        if (m_boot_on_complete != NULL) {
+            m_boot_on_complete();
+        }
     }
 }
 

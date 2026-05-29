@@ -467,22 +467,21 @@ static void check_wakeup_src(void) {
         NRF_LOG_INFO("WakeUp from button");
         advertising_start(false); // Turn on Bluetooth radio
 
-        // Button wake-up boot animation
+        // Button wake-up boot animation (non-blocking; plays from the main loop)
         uint8_t animation_config = settings_get_animation_config();
+        rgb_marquee_boot_clear();
         if (animation_config == SettingsAnimationModeFull) {
-            rgb_marquee_sweep_to(color, !dir, 11);
-            rgb_marquee_sweep_to(color, dir, 11);
-            rgb_marquee_sweep_to(color, !dir, dir ? slot : 7 - slot);
+            rgb_marquee_boot_push(RGB_BOOT_SWEEP_TO, color, !dir, 11);
+            rgb_marquee_boot_push(RGB_BOOT_SWEEP_TO, color, dir, 11);
+            rgb_marquee_boot_push(RGB_BOOT_SWEEP_TO, color, !dir, dir ? slot : 7 - slot);
         } else if (animation_config == SettingsAnimationModeMinimal) {
-            rgb_marquee_sweep_to(color, !dir, dir ? slot : 7 - slot);
+            rgb_marquee_boot_push(RGB_BOOT_SWEEP_TO, color, !dir, dir ? slot : 7 - slot);
         } else if (animation_config == SettingsAnimationModeSymmetric) {
-            rgb_marquee_symmetric_out(color, slot);
-        } else {
-            set_slot_light_color(color);
+            rgb_marquee_boot_push(RGB_BOOT_SYMMETRIC_OUT, color, slot, 0);
         }
 
         // The indicator of the current card slot lights up at the end of the animation
-        light_up_by_slot();
+        rgb_marquee_boot_run(color, light_up_by_slot);
 
         // If no operation follows, wait for the timeout and then deep hibernate
         sleep_timer_start(SLEEP_DELAY_MS_BUTTON_WAKEUP);
@@ -507,15 +506,14 @@ static void check_wakeup_src(void) {
         TAG_FIELD_LED_ON();
 
         uint8_t animation_config = settings_get_animation_config();
+        rgb_marquee_boot_clear();
         if (animation_config == SettingsAnimationModeFull) {
             // In the case of field wake-up, only one round of RGB is swept as the power-on animation
-            rgb_marquee_sweep_to(color, !dir, dir ? slot : 7 - slot);
+            rgb_marquee_boot_push(RGB_BOOT_SWEEP_TO, color, !dir, dir ? slot : 7 - slot);
         } else if (animation_config == SettingsAnimationModeSymmetric) {
-            rgb_marquee_symmetric_out(color, slot);
-        } else {
-            set_slot_light_color(color);
+            rgb_marquee_boot_push(RGB_BOOT_SYMMETRIC_OUT, color, slot, 0);
         }
-        light_up_by_slot();
+        rgb_marquee_boot_run(color, light_up_by_slot);
 
         // We can only run tag emulation at field wakeup source.
         sleep_timer_start(SLEEP_DELAY_MS_FIELD_WAKEUP);
@@ -540,25 +538,25 @@ static void check_wakeup_src(void) {
         // Initialize the default card slot data.
         tag_emulation_factory_init();
 
-        // RGB
+        // RGB (non-blocking; plays from the main loop)
         uint8_t animation_config = settings_get_animation_config();
+        rgb_marquee_boot_clear();
         if (animation_config == SettingsAnimationModeFull) {
-            rgb_marquee_sweep_to(0, !dir, 11);
-            rgb_marquee_sweep_to(1, dir, 11);
-            rgb_marquee_sweep_to(2, !dir, 11);
+            rgb_marquee_boot_push(RGB_BOOT_SWEEP_TO, 0, !dir, 11);
+            rgb_marquee_boot_push(RGB_BOOT_SWEEP_TO, 1, dir, 11);
+            rgb_marquee_boot_push(RGB_BOOT_SWEEP_TO, 2, !dir, 11);
         } else if (animation_config == SettingsAnimationModeMinimal) {
-            rgb_marquee_sweep_from_to(0, 0, 2);
-            rgb_marquee_sweep_from_to(1, 2, 5);
-            rgb_marquee_sweep_from_to(2, 5, 7);
+            rgb_marquee_boot_push(RGB_BOOT_SWEEP_FROM_TO, 0, 0, 2);
+            rgb_marquee_boot_push(RGB_BOOT_SWEEP_FROM_TO, 1, 2, 5);
+            rgb_marquee_boot_push(RGB_BOOT_SWEEP_FROM_TO, 2, 5, 7);
         } else if (animation_config == SettingsAnimationModeSymmetric) {
-            rgb_marquee_symmetric_out(0, ~0);
-            rgb_marquee_symmetric_in(1, ~0);
-            rgb_marquee_symmetric_out(2, ~0);
+            rgb_marquee_boot_push(RGB_BOOT_SYMMETRIC_OUT, 0, ~0, 0);
+            rgb_marquee_boot_push(RGB_BOOT_SYMMETRIC_IN, 1, ~0, 0);
+            rgb_marquee_boot_push(RGB_BOOT_SYMMETRIC_OUT, 2, ~0, 0);
         }
 
-        // Show RGB for slot.
-        set_slot_light_color(color);
-        light_up_by_slot();
+        // Show RGB for slot at the end of the animation.
+        rgb_marquee_boot_run(color, light_up_by_slot);
 
         // If the USB is plugged in when first powered up, we can do something accordingly
         if (nrfx_power_usbstatus_get() != NRFX_POWER_USB_STATE_DISCONNECTED) {
@@ -1041,8 +1039,12 @@ int main(void) {
         field_generator_rainbow_loop();
 #endif
 
-        // Led blink at usb status (only if field generator is off)
-        if (!m_is_field_on) {
+        // Non-blocking boot/wake-up LED animation (advances one frame per interval)
+        rgb_marquee_boot_process();
+
+        // Led blink at usb status (only if field generator is off and boot
+        // animation isn't currently driving the LEDs)
+        if (!m_is_field_on && !rgb_marquee_boot_is_active()) {
             blink_usb_led_status();
         }
 

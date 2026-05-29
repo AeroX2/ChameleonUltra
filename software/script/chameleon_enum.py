@@ -596,6 +596,8 @@ class ButtonPressFunction(enum.IntEnum):
     BATTERY = 4
     FIELDGEN = 5
     TOGGLEBLE = 6
+    FULLREAD = 7
+    WRITE = 8
 
     def __str__(self):
         if self == ButtonPressFunction.NONE:
@@ -612,6 +614,10 @@ class ButtonPressFunction(enum.IntEnum):
             return "Toggle NFC Field Generator"
         elif self == ButtonPressFunction.TOGGLEBLE:
             return "Toggle BLE radio on/off"
+        elif self == ButtonPressFunction.FULLREAD:
+            return "Full-read MFC 1K via default keys into scratch slot"
+        elif self == ButtonPressFunction.WRITE:
+            return "Write current slot to card (A,B,A+B confirm sequence)"
         return "None"
 
 

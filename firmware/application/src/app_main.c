@@ -1020,6 +1020,24 @@ static void btn_fn_copy_ic_uid(void) {
  */
 // Toggle the BLE radio (advertising) on/off and persist the choice to flash.
 // Bound to the A+B chord by default (see settings_init_chord_button_press_config).
+// Brief all-LED blink to acknowledge a BLE-radio toggle. Without this the A+B
+// chord toggle is silent and the user has no way to tell whether BLE just
+// turned on or off. Implemented inline (not via the PROJECT_CHAMELEON_ULTRA-only
+// offline_status_blink_color helper) so it also works on the lite variant.
+static void ble_toggle_blink(uint8_t color) {
+    uint32_t *led_pins = hw_get_led_array();
+    set_slot_light_color(color);
+    for (int i = 0; i < RGB_LIST_NUM; i++) {
+        nrf_gpio_pin_set(led_pins[i]);
+    }
+    bsp_delay_ms(150);
+    for (int i = 0; i < RGB_LIST_NUM; i++) {
+        nrf_gpio_pin_clear(led_pins[i]);
+    }
+    // Restore the normal per-slot LED indication.
+    light_up_by_slot();
+}
+
 static void btn_fn_toggle_ble(void) {
     bool enable = !settings_get_ble_radio_enable();
     settings_set_ble_radio_enable(enable);
@@ -1027,9 +1045,11 @@ static void btn_fn_toggle_ble(void) {
     if (enable) {
         NRF_LOG_INFO("BLE radio enabled");
         advertising_start(false);
+        ble_toggle_blink(RGB_BLUE); // blue = BLE on
     } else {
         NRF_LOG_INFO("BLE radio disabled");
         advertising_stop();
+        ble_toggle_blink(RGB_RED); // red = BLE off
     }
 }
 

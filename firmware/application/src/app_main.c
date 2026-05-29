@@ -1075,6 +1075,9 @@ static void btn_fn_toggle_ble(void) {
         ble_toggle_blink(RGB_BLUE); // blue = BLE on
     } else {
         NRF_LOG_INFO("BLE radio disabled");
+        // Drop any live link first, then stop advertising so the radio truly
+        // goes quiet (advertising alone leaves a connected host talking).
+        ble_disconnect();
         advertising_stop();
         ble_toggle_blink(RGB_RED); // red = BLE off
     }

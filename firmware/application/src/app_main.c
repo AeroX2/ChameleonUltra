@@ -32,6 +32,7 @@ NRF_LOG_MODULE_REGISTER();
 #include "bsp_time.h"
 #include "bsp_wdt.h"
 #include "dataframe.h"
+#include "fds_ids.h"
 #include "fds_util.h"
 #include "hex_utils.h"
 #include "rfid_main.h"
@@ -841,172 +842,171 @@ static void offline_status_ok(void) {
     offline_status_blink_color(RGB_GREEN);
 }
 
-static void btn_fn_copy_lf(uint8_t slot, tag_specific_type_t type) {
-    tag_data_buffer_t *buffer = get_buffer_by_tag_type(type);
-    if (buffer == NULL) {
-        // empty HF slot, nothing to do
-        return;
-    }
-    size_t size = 0;
-    uint8_t id_buffer[16] = {0x00};
-    uint8_t status = STATUS_LF_TAG_NO_FOUND;
-    uint8_t *data = NULL;
-    switch (type) {
-        case TAG_TYPE_HID_PROX:
-            status = scan_hidprox(id_buffer, 0);
-            size = LF_HIDPROX_TAG_ID_SIZE;
-            data = id_buffer;
-            break;
-        case TAG_TYPE_IOPROX:
-            status = scan_ioprox(id_buffer, 0);
-            size = LF_IOPROX_TAG_ID_SIZE;
-            data = id_buffer;
-            break;
-        case TAG_TYPE_EM410X:
-        case TAG_TYPE_EM410X_ELECTRA: {
-            status = scan_em410x(id_buffer);
-            tag_specific_type_t detected_type = (id_buffer[0] << 8) | id_buffer[1];
-            tag_specific_type_t new_type =
-                detected_type == TAG_TYPE_EM410X_ELECTRA ? TAG_TYPE_EM410X_ELECTRA : TAG_TYPE_EM410X;
+// ----- Scratch slot persistence (used by CLONE / future FULLREAD) -----
+//
+// CLONE no longer overwrites the currently-active slot. Instead it lands in
+// a "scratch" slot: the first empty HF slot found at the time CLONE is first
+// pressed. That choice is persisted in flash so subsequent CLONE presses
+// reuse the same slot (and overwrite whatever was previously cloned there).
+// If no empty slot is ever available, CLONE falls back to the current active
+// slot as a temporary target without persisting the choice.
 
-            // If we read Electra but the slot was classic (or vice versa), switch slot type automatically.
-            if (new_type != type) {
-                tag_emulation_change_type(slot, new_type);
-                type = new_type;
-            }
+#define SCRATCH_SLOT_NONE 0xFF
 
-            size = (new_type == TAG_TYPE_EM410X_ELECTRA) ? LF_EM410X_ELECTRA_TAG_ID_SIZE : LF_EM410X_TAG_ID_SIZE;
-            data = id_buffer + 2;  // skip tag type
-            break;
+static uint8_t scratch_slot_get(void) {
+    uint8_t buf[4] = { 0 };
+    uint16_t len = sizeof(buf);
+    if (fds_read_sync(FDS_SCRATCH_SLOT_FILE_ID, FDS_SCRATCH_SLOT_RECORD_KEY, &len, buf)) {
+        if (buf[0] < TAG_MAX_SLOT_NUM) {
+            return buf[0];
         }
-        case TAG_TYPE_VIKING:
-            status = scan_viking(id_buffer);
-            size = LF_VIKING_TAG_ID_SIZE;
-            data = id_buffer;
-            break;
-        default:
-            NRF_LOG_ERROR("Unsupported LF tag type")
-            offline_status_error();
     }
-
-    if (status == STATUS_LF_TAG_OK) {
-        memcpy(buffer->buffer, data, size);
-        tag_emulation_load_by_buffer(type, false);
-        NRF_LOG_INFO("Offline lf tag copied")
-
-        char *nick = "cloned";
-        uint8_t nick_buffer[36];
-        nick_buffer[0] = strlen(nick);
-        memcpy(nick_buffer + 1, nick, nick_buffer[0]);
-
-        fds_slot_record_map_t map_info;
-        get_fds_map_by_slot_sense_type_for_nick(slot, TAG_SENSE_LF, &map_info);
-        fds_write_sync(map_info.id, map_info.key, sizeof(nick_buffer), nick_buffer);
-        offline_status_ok();
-    } else {
-        NRF_LOG_INFO("No lf tag found");
-        offline_status_error();
-    }
+    return SCRATCH_SLOT_NONE;
 }
 
-static void btn_fn_copy_hf(uint8_t slot, tag_specific_type_t type) {
-    tag_data_buffer_t *buffer = get_buffer_by_tag_type(type);
-    if (buffer == NULL) {
-        // empty HF slot, nothing to do
-        return;
-    }
+static void scratch_slot_set(uint8_t idx) {
+    // Word-aligned single-byte payload (FDS stores in 4-byte words).
+    uint8_t buf[4] = { idx, 0, 0, 0 };
+    fds_write_sync(FDS_SCRATCH_SLOT_FILE_ID, FDS_SCRATCH_SLOT_RECORD_KEY, sizeof(buf), buf);
+}
 
-    uint8_t status = 0;
-    nfc_tag_14a_coll_res_entity_t *antres = NULL;
-    switch (type) {
-        case TAG_TYPE_MIFARE_Mini:
-        case TAG_TYPE_MIFARE_1024:
-        case TAG_TYPE_MIFARE_2048:
-        case TAG_TYPE_MIFARE_4096: {
-            nfc_tag_mf1_information_t *p_info = (nfc_tag_mf1_information_t *)buffer->buffer;
-            antres = &(p_info->res_coll);
+// Returns the lowest slot index whose HF type is undefined (i.e. nothing
+// emulated on the HF side), or SCRATCH_SLOT_NONE if all slots have HF set.
+static uint8_t find_first_empty_hf_slot(void) {
+    for (uint8_t i = 0; i < TAG_MAX_SLOT_NUM; i++) {
+        tag_slot_specific_type_t types;
+        tag_emulation_get_specific_types_by_slot(i, &types);
+        if (types.tag_hf == TAG_TYPE_UNDEFINED) {
+            return i;
+        }
+    }
+    return SCRATCH_SLOT_NONE;
+}
+
+// Decide where a clone capture should land. Persists the choice on first
+// use so subsequent captures reuse the same scratch slot.
+//   - if a scratch slot is already persisted: use it (overwrite)
+//   - else find the first empty HF slot, persist it, use it
+//   - else fall back to the currently-active slot (temporary, not persisted)
+static uint8_t pick_target_slot(void) {
+    uint8_t scratch = scratch_slot_get();
+    if (scratch != SCRATCH_SLOT_NONE) {
+        return scratch;
+    }
+    uint8_t empty = find_first_empty_hf_slot();
+    if (empty != SCRATCH_SLOT_NONE) {
+        scratch_slot_set(empty);
+        return empty;
+    }
+    return tag_emulation_get_slot();
+}
+
+// Poll the HF reader for up to timeout_ms milliseconds for a 14443A tag.
+// Returns STATUS_HF_TAG_OK on success (with tag info in *tag), or the last
+// scan status (typically STATUS_HF_TAG_NO) on timeout. Antenna is assumed
+// to already be on. Feeds the watchdog and yields between attempts.
+static uint8_t poll_for_hf_tag(picc_14a_tag_t *tag, uint32_t timeout_ms) {
+    uint8_t status = STATUS_HF_TAG_NO;
+    autotimer *p_at = bsp_obtain_timer(0);
+    while (NO_TIMEOUT_1MS(p_at, timeout_ms)) {
+        status = pcd_14a_reader_scan_auto(tag);
+        if (status == STATUS_HF_TAG_OK) {
             break;
         }
-
-        case TAG_TYPE_NTAG_210:
-        case TAG_TYPE_NTAG_212:
-        case TAG_TYPE_NTAG_213:
-        case TAG_TYPE_NTAG_215:
-        case TAG_TYPE_NTAG_216:
-        case TAG_TYPE_MF0ICU1:
-        case TAG_TYPE_MF0ICU2:
-        case TAG_TYPE_MF0UL11:
-        case TAG_TYPE_MF0UL21: {
-            nfc_tag_mf0_ntag_information_t *p_info = (nfc_tag_mf0_ntag_information_t *)buffer->buffer;
-            antres = &(p_info->res_coll);
-            break;
+        // ~50 ms backoff between attempts; feed WDT periodically.
+        for (int i = 0; i < 50; i++) {
+            bsp_delay_ms(1);
+            bsp_wdt_feed();
         }
-        default:
-            NRF_LOG_ERROR("Unsupported HF tag type")
-            offline_status_error();
-            break;
     }
+    bsp_return_timer(p_at);
+    return status;
+}
 
-    if (antres == NULL) {
-        return;
+// Wait up to 5s for a 14443A tag, then write its UID/ATQA/SAK/ATS into a
+// scratch slot, persist, and switch the device to that slot. Falls back to
+// the active slot if no empty slot is available; fails (red LED) if no tag
+// is presented within the 5s window.
+static void btn_fn_copy_ic_uid(void) {
+    bool was_in_reader_mode = get_device_mode() == DEVICE_MODE_READER;
+    if (!was_in_reader_mode) {
+        reader_mode_enter();
+        bsp_delay_ms(8);
+        NRF_LOG_INFO("CLONE: entered reader mode for offline UID copy");
     }
 
     pcd_14a_reader_antenna_on();
     bsp_delay_ms(8);
-    // select a tag
+
     picc_14a_tag_t tag;
+    uint8_t status = poll_for_hf_tag(&tag, 5000);
 
-    status = pcd_14a_reader_scan_auto(&tag);
     pcd_14a_reader_antenna_off();
-    if (status == STATUS_HF_TAG_OK) {
-        // copy uid
-        antres->size = tag.uid_len;
-        memcpy(antres->uid, tag.uid, tag.uid_len);
-        // copy atqa
-        memcpy(antres->atqa, tag.atqa, 2);
-        // copy sak
-        antres->sak[0] = tag.sak;
-        // copy ats
-        antres->ats.length = tag.ats_len;
-        memcpy(antres->ats.data, tag.ats, tag.ats_len);
-        NRF_LOG_INFO("Offline HF uid copied")
 
-        char *nick = "cloned";
-        uint8_t nick_buffer[36];
-        nick_buffer[0] = strlen(nick);
-        memcpy(nick_buffer + 1, nick, nick_buffer[0]);
-
-        fds_slot_record_map_t map_info;
-        get_fds_map_by_slot_sense_type_for_nick(slot, TAG_SENSE_HF, &map_info);
-        fds_write_sync(map_info.id, map_info.key, sizeof(nick_buffer), nick_buffer);
-        offline_status_ok();
-    } else {
-        NRF_LOG_INFO("No HF tag found");
+    if (status != STATUS_HF_TAG_OK) {
+        NRF_LOG_INFO("CLONE: no HF tag found within 5s");
         offline_status_error();
-    }
-}
-
-// fast detect a 14a tag uid to sim
-static void btn_fn_copy_ic_uid(void) {
-    // get 14a tag res buffer;
-    uint8_t slot_now = tag_emulation_get_slot();
-    tag_slot_specific_type_t tag_types;
-    tag_emulation_get_specific_types_by_slot(slot_now, &tag_types);
-
-    bool is_in_reader_mode = get_device_mode() == DEVICE_MODE_READER;
-    // first, we need switch to reader mode.
-    if (!is_in_reader_mode) {
-        // enter reader mode
-        reader_mode_enter();
-        bsp_delay_ms(8);
-        NRF_LOG_INFO("Start reader mode to offline copy.")
+        if (!was_in_reader_mode) {
+            tag_mode_enter();
+        }
+        return;
     }
 
-    btn_fn_copy_lf(slot_now, tag_types.tag_lf);
-    btn_fn_copy_hf(slot_now, tag_types.tag_hf);
+    uint8_t target = pick_target_slot();
+    NRF_LOG_INFO("CLONE: target slot = %d", target);
 
-    // keep reader mode or exit reader mode.
-    if (!is_in_reader_mode) {
+    // Switch to the target slot first so subsequent change_type / buffer
+    // operations affect the right slot's in-RAM data (get_buffer_by_tag_type
+    // returns the per-tag-type buffer which is shared across slots and
+    // mirrors whichever slot is currently active).
+    if (target != tag_emulation_get_slot()) {
+        tag_emulation_change_slot(target, true);
+    }
+
+    // Make sure the target slot has HF enabled and is set to MFC 1K. If the
+    // slot was empty we have to provision a type; if it already had a
+    // different HF type we overwrite to MFC 1K (UID-only clones land there).
+    tag_slot_specific_type_t target_types;
+    tag_emulation_get_specific_types_by_slot(target, &target_types);
+    if (target_types.tag_hf != TAG_TYPE_MIFARE_1024) {
+        tag_emulation_change_type(target, TAG_TYPE_MIFARE_1024);
+    }
+    tag_emulation_slot_set_enable(target, TAG_SENSE_HF, true);
+
+    tag_data_buffer_t *buffer = get_buffer_by_tag_type(TAG_TYPE_MIFARE_1024);
+    if (buffer == NULL) {
+        NRF_LOG_ERROR("CLONE: no buffer for MFC 1K");
+        offline_status_error();
+        if (!was_in_reader_mode) {
+            tag_mode_enter();
+        }
+        return;
+    }
+    nfc_tag_mf1_information_t *p_info = (nfc_tag_mf1_information_t *)buffer->buffer;
+    nfc_tag_14a_coll_res_entity_t *antres = &(p_info->res_coll);
+
+    antres->size = tag.uid_len;
+    memcpy(antres->uid, tag.uid, tag.uid_len);
+    memcpy(antres->atqa, tag.atqa, 2);
+    antres->sak[0] = tag.sak;
+    antres->ats.length = tag.ats_len;
+    memcpy(antres->ats.data, tag.ats, tag.ats_len);
+    NRF_LOG_INFO("CLONE: UID copied into slot %d", target);
+
+    // Persist nick + slot data.
+    char *nick = "cloned";
+    uint8_t nick_buffer[36];
+    nick_buffer[0] = strlen(nick);
+    memcpy(nick_buffer + 1, nick, nick_buffer[0]);
+    fds_slot_record_map_t map_info;
+    get_fds_map_by_slot_sense_type_for_nick(target, TAG_SENSE_HF, &map_info);
+    fds_write_sync(map_info.id, map_info.key, sizeof(nick_buffer), nick_buffer);
+
+    tag_emulation_save();
+
+    offline_status_ok();
+
+    if (!was_in_reader_mode) {
         tag_mode_enter();
     }
 }

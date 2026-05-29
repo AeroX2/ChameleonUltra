@@ -19,6 +19,14 @@
 #define FDS_SETTINGS_RECORD_KEY             0x1
 
 /*
+ * Scratch slot index used by on-device CLONE / FULLREAD button functions.
+ * Single-byte payload: the slot index (0..TAG_MAX_SLOT_NUM-1) that scratch
+ * captures land in, or 0xFF if no scratch slot has been picked yet.
+ */
+#define FDS_SCRATCH_SLOT_FILE_ID            0x1002
+#define FDS_SCRATCH_SLOT_RECORD_KEY         0x1
+
+/*
  * Each card slot has two types of data, high and low frequency
  * FDS file ID follows the card slot, starting from 0x1100 to 0x1107
  * FDS record key mirrors TAG_SENSE_LF/HF so is 1 for LF, 2 for HF (currently)

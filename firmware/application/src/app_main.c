@@ -63,9 +63,6 @@ APP_TIMER_DEF(m_button_b_dblclick_timer);   // Awaiting second-click window (B)
 // 80ms so the chord is reliably triggerable by hand (tradeoff: a fast A-then-B
 // can occasionally count as a chord rather than two separate presses).
 #define BUTTON_CHORD_WINDOW_MS 200
-// Boot-time slot select: after a button wake, how long to keep counting extra
-// A taps before committing. Each tap restarts the window. Tune on-device.
-#define BOOT_SLOT_CLICK_WINDOW_MS 250
 
 static bool m_is_b_btn_press = false;
 static bool m_is_a_btn_press = false;
@@ -679,36 +676,6 @@ static void check_wakeup_src(void) {
 
     if (m_reset_source & NRF_POWER_RESETREAS_OFF_MASK) {
         NRF_LOG_INFO("WakeUp from button");
-
-        // Boot-time slot select: the device woke from an A press (the B button
-        // is claimed by the bootloader for DFU entry, so it never reaches the
-        // app). The wake press counts as the first tap; count up to 3 quick A
-        // taps and select slot 0/1/2 for 1/2/3 taps. Done before the wake
-        // animation below so the animation targets the chosen slot (no stale
-        // LED on the previously-selected slot).
-        uint8_t boot_taps = 1;
-        uint32_t tap_gap_ms = 0;
-        bool a_was_down = (nrf_gpio_pin_read(BUTTON_2) == 1);
-        while (boot_taps < 3 && tap_gap_ms < BOOT_SLOT_CLICK_WINDOW_MS) {
-            bool a_is_down = (nrf_gpio_pin_read(BUTTON_2) == 1);
-            if (a_is_down && !a_was_down) {  // rising edge = another tap
-                boot_taps++;
-                tap_gap_ms = 0;
-            } else {
-                bsp_delay_ms(5);
-                tap_gap_ms += 5;
-            }
-            a_was_down = a_is_down;
-        }
-        uint8_t boot_slot = boot_taps - 1;  // 1/2/3 taps -> slot 0/1/2
-        if (boot_slot != tag_emulation_get_slot()) {
-            NRF_LOG_INFO("Boot slot select: %d tap(s) -> slot %d", boot_taps, boot_slot + 1);
-            tag_emulation_change_slot(boot_slot, false);
-            slot = tag_emulation_get_slot();
-            dir = slot > 3 ? 1 : 0;
-            color = get_color_by_slot(slot);
-        }
-
         advertising_start(false); // Turn on Bluetooth radio
 
         // Button wake-up boot animation (non-blocking; plays from the main loop)

@@ -48,6 +48,10 @@
 #define DATA_CMD_GET_ALL_SLOT_NICKS             (1038)
 #define DATA_CMD_GET_SLEEP_TIMEOUT              (1039)
 #define DATA_CMD_SET_SLEEP_TIMEOUT              (1040)
+#define DATA_CMD_GET_DOUBLE_BUTTON_PRESS_CONFIG (1041)
+#define DATA_CMD_SET_DOUBLE_BUTTON_PRESS_CONFIG (1042)
+#define DATA_CMD_GET_CHORD_BUTTON_PRESS_CONFIG  (1043)
+#define DATA_CMD_SET_CHORD_BUTTON_PRESS_CONFIG  (1044)
 
 //
 // ******************************************************************

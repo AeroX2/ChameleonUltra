@@ -7197,6 +7197,13 @@ class HWButtonSettingsGet(DeviceRequiredUnit):
         duration_group.add_argument(
             "-l", "--long", action="store_true", help="Long-press"
         )
+        duration_group.add_argument(
+            "-d", "--double", action="store_true", help="Double-click"
+        )
+        duration_group.add_argument(
+            "-c", "--chord", action="store_true",
+            help="Chord (A+B together) — global, no -a/-b needed"
+        )
         function_names = [f.name for f in list(ButtonPressFunction)]
         function_descs = [f"{f.name} ({f})" for f in list(ButtonPressFunction)]
         help_str = "Function: " + ", ".join(function_descs)
@@ -7214,6 +7221,14 @@ class HWButtonSettingsGet(DeviceRequiredUnit):
     def on_exec(self, args: argparse.Namespace):
         if args.function is not None:
             function = ButtonPressFunction[args.function]
+            if args.chord:
+                # Chord is a single global binding — no per-button selection.
+                self.cmd.set_chord_button_press_config(function)
+                print(
+                    f" - Successfully set function '{function}' to chord (A+B)"
+                )
+                print(color_string((CY, "Do not forget to store your settings in flash!")))
+                return
             if not args.a and not args.b:
                 print(
                     color_string(
@@ -7227,30 +7242,49 @@ class HWButtonSettingsGet(DeviceRequiredUnit):
                 button = ButtonType.B
             if args.long:
                 self.cmd.set_long_button_press_config(button, function)
+                press_label = "long-press"
+            elif args.double:
+                self.cmd.set_double_button_press_config(button, function)
+                press_label = "double-click"
             else:
                 self.cmd.set_button_press_config(button, function)
+                press_label = "short-press"
             print(
                 f" - Successfully set function '{function}'"
-                f" to Button {button.name} {'long-press' if args.long else 'short-press'}"
+                f" to Button {button.name} {press_label}"
             )
             print(color_string((CY, "Do not forget to store your settings in flash!")))
         else:
+            if args.chord:
+                resp_chord = self.cmd.get_chord_button_press_config()
+                chord_fn = ButtonPressFunction(resp_chord)
+                print(f"{color_string((CG, 'chord (A+B)'))}: {chord_fn}")
+                return
             if args.a:
                 button_list = [ButtonType.A]
             elif args.b:
                 button_list = [ButtonType.B]
             else:
                 button_list = list(ButtonType)
+            show_short = not args.long and not args.double
+            show_long = not args.short and not args.double
+            show_double = not args.short and not args.long
             for button in button_list:
-                if not args.long:
+                if show_short:
                     resp = self.cmd.get_button_press_config(button)
                     button_fn = ButtonPressFunction(resp)
                     print(f"{color_string((CG, f'{button.name} short'))}: {button_fn}")
-                if not args.short:
+                if show_long:
                     resp_long = self.cmd.get_long_button_press_config(button)
                     button_long_fn = ButtonPressFunction(resp_long)
                     print(
                         f"{color_string((CG, f'{button.name} long'))}: {button_long_fn}"
+                    )
+                if show_double:
+                    resp_double = self.cmd.get_double_button_press_config(button)
+                    button_double_fn = ButtonPressFunction(resp_double)
+                    print(
+                        f"{color_string((CG, f'{button.name} double'))}: {button_double_fn}"
                     )
                 print("")
 

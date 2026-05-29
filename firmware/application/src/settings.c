@@ -58,6 +58,17 @@ void settings_init_sleep_timeout_config(void) {
     config.sleep_timeout = SETTINGS_SLEEP_TIMEOUT_DEFAULT_S;
 }
 
+// add on version7
+void settings_init_double_button_press_config(void) {
+    config.button_a_double = SettingsButtonDisable;
+    config.button_b_double = SettingsButtonDisable;
+}
+
+// add on version8
+void settings_init_chord_button_press_config(void) {
+    config.button_chord = SettingsButtonDisable;
+}
+
 void settings_init_config(void) {
     settings_update_version_for_config();
     config.animation_config = SettingsAnimationModeFull; // add on version1
@@ -66,6 +77,8 @@ void settings_init_config(void) {
     settings_init_ble_connect_key_config();
     settings_init_ble_pairing_enable_config();
     settings_init_sleep_timeout_config();
+    settings_init_double_button_press_config();
+    settings_init_chord_button_press_config();
 }
 
 void settings_migrate(void) {
@@ -88,6 +101,12 @@ void settings_migrate(void) {
 
         case 5:
             settings_init_sleep_timeout_config();
+
+        case 6:
+            settings_init_double_button_press_config();
+
+        case 7:
+            settings_init_chord_button_press_config();
 
             /*
              * Add new migration steps ABOVE THIS COMMENT
@@ -274,6 +293,71 @@ void settings_set_long_button_press_config(char which, uint8_t value) {
             APP_ERROR_CHECK_BOOL(false);
             break;
     }
+}
+
+/**
+ * @brief Get the double-click button config
+ *
+ * @param which 'a' or 'b'
+ * @return uint8_t @link{ settings_button_function_t }
+ */
+uint8_t settings_get_double_button_press_config(char which) {
+    switch (which) {
+        case 'a':
+        case 'A':
+            return config.button_a_double;
+
+        case 'b':
+        case 'B':
+            return config.button_b_double;
+
+        default:
+            APP_ERROR_CHECK_BOOL(false);
+            break;
+    }
+    return SettingsButtonDisable;
+}
+
+/**
+ * @brief Set the double-click button config
+ *
+ * @param which 'a' or 'b'
+ * @param value @link{ settings_button_function_t }
+ */
+void settings_set_double_button_press_config(char which, uint8_t value) {
+    switch (which) {
+        case 'a':
+        case 'A':
+            config.button_a_double = value;
+            break;
+
+        case 'b':
+        case 'B':
+            config.button_b_double = value;
+            break;
+
+        default:
+            APP_ERROR_CHECK_BOOL(false);
+            break;
+    }
+}
+
+/**
+ * @brief Get the chord (both buttons pressed simultaneously) button config
+ *
+ * @return uint8_t @link{ settings_button_function_t }
+ */
+uint8_t settings_get_chord_button_press_config(void) {
+    return config.button_chord;
+}
+
+/**
+ * @brief Set the chord (both buttons pressed simultaneously) button config
+ *
+ * @param value @link{ settings_button_function_t }
+ */
+void settings_set_chord_button_press_config(uint8_t value) {
+    config.button_chord = value;
 }
 
 uint8_t *settings_get_ble_connect_key(void) {

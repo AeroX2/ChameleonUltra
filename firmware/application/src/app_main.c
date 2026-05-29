@@ -48,16 +48,47 @@ NRF_LOG_MODULE_REGISTER();
 
 // Defining soft timers
 APP_TIMER_DEF(m_button_check_timer); // Timer for button debounce
+APP_TIMER_DEF(m_button_a_long_press_timer); // Per-button long-hold detection (A)
+APP_TIMER_DEF(m_button_b_long_press_timer); // Per-button long-hold detection (B)
+APP_TIMER_DEF(m_button_a_dblclick_timer);   // Awaiting second-click window (A)
+APP_TIMER_DEF(m_button_b_dblclick_timer);   // Awaiting second-click window (B)
 
-static uint32_t m_last_btn_press = 0;
-
-static bool m_is_btn_long_press = false;
+#define BUTTON_LONG_HOLD_MS 1000
+#define BUTTON_DBLCLICK_WINDOW_MS 250
+#define BUTTON_CHORD_WINDOW_MS 80
 
 static bool m_is_b_btn_press = false;
 static bool m_is_a_btn_press = false;
 
 static bool m_is_b_btn_release = false;
 static bool m_is_a_btn_release = false;
+
+// Press timestamps for chord detection: the second press must be debounced
+// within BUTTON_CHORD_WINDOW_MS of the first to count as a chord.
+static uint32_t m_a_press_time = 0;
+static uint32_t m_b_press_time = 0;
+
+// Chord state: when both buttons are pressed together, individual events
+// for both are suppressed and a single chord event is dispatched once.
+static bool m_chord_active = false;
+static bool m_chord_pending = false;
+
+// Long-hold fires immediately when threshold is reached while button is still held.
+// Once fired for a button, the subsequent release does NOT also emit a short-click.
+static bool m_a_long_hold_fired = false;
+static bool m_b_long_hold_fired = false;
+static bool m_a_long_hold_pending = false;
+static bool m_b_long_hold_pending = false;
+
+// Double-click detection: after the first release, we hold off the short-click
+// dispatch for BUTTON_DBLCLICK_WINDOW_MS to see whether a second press arrives.
+// Only engaged when double-click is configured for that button.
+static bool m_a_await_2nd = false;
+static bool m_b_await_2nd = false;
+static bool m_a_in_2nd_press = false;
+static bool m_b_in_2nd_press = false;
+static bool m_a_dblclick_pending = false;
+static bool m_b_dblclick_pending = false;
 
 static bool m_system_off_processing = false;
 
@@ -193,6 +224,75 @@ static void button_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t a
     }
 }
 
+/** @brief Long-hold timer callback for button A: fires when A has been held
+ *         continuously for BUTTON_LONG_HOLD_MS without release.
+ */
+static void timer_button_a_long_hold_handle(void *arg) {
+    (void)arg;
+    if (m_is_a_btn_press) {
+        NRF_LOG_INFO("BUTTON_A_LONG_HOLD");
+        m_a_long_hold_fired = true;
+        m_a_long_hold_pending = true;
+    }
+}
+
+/** @brief Long-hold timer callback for button B. */
+static void timer_button_b_long_hold_handle(void *arg) {
+    (void)arg;
+    if (m_is_b_btn_press) {
+        NRF_LOG_INFO("BUTTON_B_LONG_HOLD");
+        m_b_long_hold_fired = true;
+        m_b_long_hold_pending = true;
+    }
+}
+
+/** @brief Double-click window expired for button A: no second press arrived
+ *         within BUTTON_DBLCLICK_WINDOW_MS, so dispatch the first click as
+ *         a single short-press.
+ */
+static void timer_button_a_dblclick_handle(void *arg) {
+    (void)arg;
+    if (m_a_await_2nd) {
+        m_a_await_2nd = false;
+        m_is_a_btn_release = true;
+    }
+}
+
+/** @brief Double-click window expired for button B. */
+static void timer_button_b_dblclick_handle(void *arg) {
+    (void)arg;
+    if (m_b_await_2nd) {
+        m_b_await_2nd = false;
+        m_is_b_btn_release = true;
+    }
+}
+
+/** @brief Cancel all pending single-button event state when transitioning into
+ *         chord mode. Suppresses any in-flight long-hold/double-click/release
+ *         that would otherwise fire alongside the chord.
+ */
+static void enter_chord_state(void) {
+    app_timer_stop(m_button_a_long_press_timer);
+    app_timer_stop(m_button_b_long_press_timer);
+    app_timer_stop(m_button_a_dblclick_timer);
+    app_timer_stop(m_button_b_dblclick_timer);
+    m_a_long_hold_fired = false;
+    m_b_long_hold_fired = false;
+    m_a_long_hold_pending = false;
+    m_b_long_hold_pending = false;
+    m_a_await_2nd = false;
+    m_b_await_2nd = false;
+    m_a_in_2nd_press = false;
+    m_b_in_2nd_press = false;
+    m_a_dblclick_pending = false;
+    m_b_dblclick_pending = false;
+    m_is_a_btn_release = false;
+    m_is_b_btn_release = false;
+    m_chord_active = true;
+    m_chord_pending = true;
+    NRF_LOG_INFO("BUTTON_CHORD");
+}
+
 /** @brief Button anti-shake timer
  * @param None
  * @return None
@@ -212,49 +312,123 @@ static void timer_button_event_handle(void *arg) {
         if (pin == BUTTON_1) {
             // If button is disabled, we can't dispatch key event.
             if (settings_get_button_press_config('b') != SettingsButtonDisable) {
-                NRF_LOG_INFO("BUTTON_B_PRESS");
-                m_is_b_btn_press = true;
-                m_last_btn_press = app_timer_cnt_get();
+                uint32_t now = app_timer_cnt_get();
+                // Chord detection: if A was pressed within CHORD_WINDOW_MS, treat as chord.
+                if (m_is_a_btn_press && !m_chord_active &&
+                    app_timer_cnt_diff_compute(now, m_a_press_time) < APP_TIMER_TICKS(BUTTON_CHORD_WINDOW_MS)) {
+                    enter_chord_state();
+                    m_is_b_btn_press = true;
+                    m_b_press_time = now;
+                } else if (m_b_await_2nd) {
+                    // Second press of a potential double-click — cancel the await
+                    // window timer and mark this press as the second one. We do
+                    // not arm long-hold on the second press; double-click takes
+                    // precedence.
+                    app_timer_stop(m_button_b_dblclick_timer);
+                    m_b_await_2nd = false;
+                    m_b_in_2nd_press = true;
+                    m_is_b_btn_press = true;
+                    m_b_press_time = now;
+                    NRF_LOG_INFO("BUTTON_B_PRESS_2ND");
+                } else {
+                    NRF_LOG_INFO("BUTTON_B_PRESS");
+                    m_is_b_btn_press = true;
+                    m_b_press_time = now;
+                    m_b_long_hold_fired = false;
+                    app_timer_start(m_button_b_long_press_timer,
+                                    APP_TIMER_TICKS(BUTTON_LONG_HOLD_MS), NULL);
+                }
             }
         }
         if (pin == BUTTON_2) {
             if (settings_get_button_press_config('a') != SettingsButtonDisable) {
-                NRF_LOG_INFO("BUTTON_A_PRESS");
-                m_is_a_btn_press = true;
-                m_last_btn_press = app_timer_cnt_get();
+                uint32_t now = app_timer_cnt_get();
+                if (m_is_b_btn_press && !m_chord_active &&
+                    app_timer_cnt_diff_compute(now, m_b_press_time) < APP_TIMER_TICKS(BUTTON_CHORD_WINDOW_MS)) {
+                    enter_chord_state();
+                    m_is_a_btn_press = true;
+                    m_a_press_time = now;
+                } else if (m_a_await_2nd) {
+                    app_timer_stop(m_button_a_dblclick_timer);
+                    m_a_await_2nd = false;
+                    m_a_in_2nd_press = true;
+                    m_is_a_btn_press = true;
+                    m_a_press_time = now;
+                    NRF_LOG_INFO("BUTTON_A_PRESS_2ND");
+                } else {
+                    NRF_LOG_INFO("BUTTON_A_PRESS");
+                    m_is_a_btn_press = true;
+                    m_a_press_time = now;
+                    m_a_long_hold_fired = false;
+                    app_timer_start(m_button_a_long_press_timer,
+                                    APP_TIMER_TICKS(BUTTON_LONG_HOLD_MS), NULL);
+                }
             }
         }
     }
 
     if (nrf_gpio_pin_read(pin) == 0) {
-        uint32_t now = app_timer_cnt_get();
-        uint32_t ticks = app_timer_cnt_diff_compute(now, m_last_btn_press);
-
-        bool is_long_press = ticks > APP_TIMER_TICKS(1000);
-
         if (pin == BUTTON_1 && m_is_b_btn_press == true) {
+            app_timer_stop(m_button_b_long_press_timer);
+            if (m_chord_active) {
+                // While chord is active, release of either button just clears
+                // that button's state. The chord event already fired on press.
+                m_is_b_btn_press = false;
+                NRF_LOG_INFO("BUTTON_B_RELEASE_CHORD");
+                if (!m_is_a_btn_press) m_chord_active = false;
+                return;
+            }
             // If button is disabled, we can't dispatch key event.
             if (settings_get_button_press_config('b') != SettingsButtonDisable) {
-                m_is_b_btn_release = true;
                 m_is_b_btn_press = false;
-                if (!is_long_press) {
-                    NRF_LOG_INFO("BUTTON_B_RELEASE_SHORT");
+                if (m_b_long_hold_fired) {
+                    // Long-hold action already fired during the hold — suppress release event.
+                    NRF_LOG_INFO("BUTTON_B_RELEASE_AFTER_LONG");
+                    m_b_long_hold_fired = false;
+                } else if (m_b_in_2nd_press) {
+                    // Release of the second click — dispatch as double-click.
+                    NRF_LOG_INFO("BUTTON_B_RELEASE_DBL");
+                    m_b_in_2nd_press = false;
+                    m_b_dblclick_pending = true;
+                } else if (settings_get_double_button_press_config('b') != SettingsButtonDisable) {
+                    // First release with double-click configured — hold off the
+                    // short-press dispatch in case a second click arrives.
+                    NRF_LOG_INFO("BUTTON_B_RELEASE_AWAIT_2ND");
+                    m_b_await_2nd = true;
+                    app_timer_start(m_button_b_dblclick_timer,
+                                    APP_TIMER_TICKS(BUTTON_DBLCLICK_WINDOW_MS), NULL);
                 } else {
-                    NRF_LOG_INFO("BUTTON_B_RELEASE_LONG");
+                    NRF_LOG_INFO("BUTTON_B_RELEASE_SHORT");
+                    m_is_b_btn_release = true;
                 }
-                m_is_btn_long_press = is_long_press;
             }
         }
         if (pin == BUTTON_2 && m_is_a_btn_press == true) {
-            if (settings_get_button_press_config('a') != SettingsButtonDisable) {
-                m_is_a_btn_release = true;
+            app_timer_stop(m_button_a_long_press_timer);
+            if (m_chord_active) {
                 m_is_a_btn_press = false;
-                if (!is_long_press) {
-                    NRF_LOG_INFO("BUTTON_A_RELEASE_SHORT");
+                NRF_LOG_INFO("BUTTON_A_RELEASE_CHORD");
+                if (!m_is_b_btn_press) m_chord_active = false;
+                return;
+            }
+            if (settings_get_button_press_config('a') != SettingsButtonDisable) {
+                m_is_a_btn_press = false;
+                if (m_a_long_hold_fired) {
+                    NRF_LOG_INFO("BUTTON_A_RELEASE_AFTER_LONG");
+                    m_a_long_hold_fired = false;
+                } else if (m_a_in_2nd_press) {
+                    NRF_LOG_INFO("BUTTON_A_RELEASE_DBL");
+                    m_a_in_2nd_press = false;
+                    m_a_dblclick_pending = true;
+                } else if (settings_get_double_button_press_config('a') != SettingsButtonDisable) {
+                    NRF_LOG_INFO("BUTTON_A_RELEASE_AWAIT_2ND");
+                    m_a_await_2nd = true;
+                    app_timer_start(m_button_a_dblclick_timer,
+                                    APP_TIMER_TICKS(BUTTON_DBLCLICK_WINDOW_MS), NULL);
                 } else {
-                    NRF_LOG_INFO("BUTTON_A_RELEASE_LONG");
+                    NRF_LOG_INFO("BUTTON_A_RELEASE_SHORT");
+                    m_is_a_btn_release = true;
                 }
-                m_is_btn_long_press = is_long_press;
             }
         }
     }
@@ -267,6 +441,18 @@ static void button_init(void) {
 
     // Non-exact timer for initializing button anti-shake
     err_code = app_timer_create(&m_button_check_timer, APP_TIMER_MODE_SINGLE_SHOT, timer_button_event_handle);
+    APP_ERROR_CHECK(err_code);
+
+    // Per-button long-hold timers (fire after BUTTON_LONG_HOLD_MS of continuous press).
+    err_code = app_timer_create(&m_button_a_long_press_timer, APP_TIMER_MODE_SINGLE_SHOT, timer_button_a_long_hold_handle);
+    APP_ERROR_CHECK(err_code);
+    err_code = app_timer_create(&m_button_b_long_press_timer, APP_TIMER_MODE_SINGLE_SHOT, timer_button_b_long_hold_handle);
+    APP_ERROR_CHECK(err_code);
+
+    // Per-button double-click window timers.
+    err_code = app_timer_create(&m_button_a_dblclick_timer, APP_TIMER_MODE_SINGLE_SHOT, timer_button_a_dblclick_handle);
+    APP_ERROR_CHECK(err_code);
+    err_code = app_timer_create(&m_button_b_dblclick_timer, APP_TIMER_MODE_SINGLE_SHOT, timer_button_b_dblclick_handle);
     APP_ERROR_CHECK(err_code);
 
     // Configure SENSE mode, select false for sense configuration
@@ -911,24 +1097,51 @@ static void run_button_function_by_settings(settings_button_function_t sbf) {
  */
 extern bool g_usb_led_marquee_enable;
 static void button_press_process(void) {
-    // Make sure that one of the AB buttons has a click event
-    if (m_is_b_btn_release || m_is_a_btn_release) {
-        if (m_is_a_btn_release) {
-            if (!m_is_btn_long_press) {
-                run_button_function_by_settings(settings_get_button_press_config('a'));
-            } else {
-                run_button_function_by_settings(settings_get_long_button_press_config('a'));
-            }
-            m_is_a_btn_release = false;
-        }
-        if (m_is_b_btn_release) {
-            if (!m_is_btn_long_press) {
-                run_button_function_by_settings(settings_get_button_press_config('b'));
-            } else {
-                run_button_function_by_settings(settings_get_long_button_press_config('b'));
-            }
-            m_is_b_btn_release = false;
-        }
+    bool dispatched = false;
+
+    // Chord event fires immediately on detection (when the second button is
+    // pressed within the chord window of the first). Per-button events are
+    // suppressed for both buttons until both release.
+    if (m_chord_pending) {
+        m_chord_pending = false;
+        run_button_function_by_settings(settings_get_chord_button_press_config());
+        dispatched = true;
+    }
+    // Long-hold events fire while the button is still pressed (mid-hold), not on release.
+    if (m_a_long_hold_pending) {
+        m_a_long_hold_pending = false;
+        run_button_function_by_settings(settings_get_long_button_press_config('a'));
+        dispatched = true;
+    }
+    if (m_b_long_hold_pending) {
+        m_b_long_hold_pending = false;
+        run_button_function_by_settings(settings_get_long_button_press_config('b'));
+        dispatched = true;
+    }
+    // Double-click events fire on release of the second click within the window.
+    if (m_a_dblclick_pending) {
+        m_a_dblclick_pending = false;
+        run_button_function_by_settings(settings_get_double_button_press_config('a'));
+        dispatched = true;
+    }
+    if (m_b_dblclick_pending) {
+        m_b_dblclick_pending = false;
+        run_button_function_by_settings(settings_get_double_button_press_config('b'));
+        dispatched = true;
+    }
+    // Short-click events fire on release (only when no long-hold or double-click fired).
+    if (m_is_a_btn_release) {
+        m_is_a_btn_release = false;
+        run_button_function_by_settings(settings_get_button_press_config('a'));
+        dispatched = true;
+    }
+    if (m_is_b_btn_release) {
+        m_is_b_btn_release = false;
+        run_button_function_by_settings(settings_get_button_press_config('b'));
+        dispatched = true;
+    }
+
+    if (dispatched) {
         // Disable led marquee for usb at button pressed.
         g_usb_led_marquee_enable = false;
         // Re-delay into hibernation (unless field is on)

@@ -45,6 +45,8 @@ NRF_LOG_MODULE_REGISTER();
 
 #if defined(PROJECT_CHAMELEON_ULTRA)
 #include "rc522.h"
+#include "lf_reader_main.h"
+#include "lf_tag_em.h"
 #endif
 
 // Defining soft timers
@@ -947,6 +949,33 @@ static uint8_t pick_target_slot(void) {
     return tag_emulation_get_slot();
 }
 
+// LF (EM410x) equivalent of find_first_empty_hf_slot.
+static uint8_t find_first_empty_lf_slot(void) {
+    for (uint8_t i = 0; i < TAG_MAX_SLOT_NUM; i++) {
+        tag_slot_specific_type_t types;
+        tag_emulation_get_specific_types_by_slot(i, &types);
+        if (types.tag_lf == TAG_TYPE_UNDEFINED) {
+            return i;
+        }
+    }
+    return SCRATCH_SLOT_NONE;
+}
+
+// LF clone target: reuse the persisted scratch slot if set, else the first
+// empty LF slot (persisted as scratch), else the active slot.
+static uint8_t pick_target_lf_slot(void) {
+    uint8_t scratch = scratch_slot_get();
+    if (scratch != SCRATCH_SLOT_NONE) {
+        return scratch;
+    }
+    uint8_t empty = find_first_empty_lf_slot();
+    if (empty != SCRATCH_SLOT_NONE) {
+        scratch_slot_set(empty);
+        return empty;
+    }
+    return tag_emulation_get_slot();
+}
+
 // Poll the HF reader for up to timeout_ms milliseconds for a 14443A tag.
 // Returns STATUS_HF_TAG_OK on success (with tag info in *tag), or the last
 // scan status (typically STATUS_HF_TAG_NO) on timeout. Antenna is assumed
@@ -1070,6 +1099,99 @@ static void btn_fn_copy_ic_uid(void) {
     light_up_by_slot();
 }
 
+// LF (EM410x) UID clone: read a 125kHz EM410x tag and emulate it in a slot.
+// The LF mirror of btn_fn_copy_ic_uid. Standard EM410x only (5-byte ID).
+static void btn_fn_copy_lf_uid(void) {
+    bool was_in_reader_mode = get_device_mode() == DEVICE_MODE_READER;
+    if (!was_in_reader_mode) {
+        reader_mode_enter();
+        bsp_delay_ms(8);
+        NRF_LOG_INFO("CLONE LF: entered reader mode for offline EM410x copy");
+    }
+
+    // Poll up to 5s for an EM410x tag. scan_em410x() blocks ~500ms per attempt
+    // and writes [tag_type_hi, tag_type_lo, id...].
+    uint8_t card_buffer[2 + LF_EM410X_ELECTRA_TAG_ID_SIZE] = {0};
+    uint8_t status = STATUS_LF_TAG_NO_FOUND;
+    autotimer *p_at = bsp_obtain_timer(0);
+    while (NO_TIMEOUT_1MS(p_at, 5000)) {
+        status = scan_em410x(card_buffer);
+        if (status == STATUS_LF_TAG_OK) {
+            break;
+        }
+        bsp_wdt_feed();
+    }
+    bsp_return_timer(p_at);
+
+    tag_specific_type_t scanned_type = (card_buffer[0] << 8) | card_buffer[1];
+    // Standard EM410x only; Electra (13-byte) is out of scope for this clone.
+    if (status != STATUS_LF_TAG_OK || scanned_type != TAG_TYPE_EM410X) {
+        NRF_LOG_INFO("CLONE LF: no EM410x tag found within 5s");
+        offline_status_error();
+        if (!was_in_reader_mode) {
+            tag_mode_enter();
+        }
+        return;
+    }
+
+    uint8_t target = pick_target_lf_slot();
+    NRF_LOG_INFO("CLONE LF: target slot = %d", target);
+
+    if (target != tag_emulation_get_slot()) {
+        tag_emulation_change_slot(target, true);
+    }
+
+    // Provision the target slot as EM410x (LF) if it isn't already.
+    tag_slot_specific_type_t target_types;
+    tag_emulation_get_specific_types_by_slot(target, &target_types);
+    if (target_types.tag_lf != TAG_TYPE_EM410X) {
+        tag_emulation_change_type(target, TAG_TYPE_EM410X);
+    }
+    tag_emulation_slot_set_enable(target, TAG_SENSE_LF, true);
+
+    // Load the captured ID into the EM410x emulation buffer (same path as the
+    // EM410X_SET_EMU_ID command).
+    tag_data_buffer_t *buffer = get_buffer_by_tag_type(TAG_TYPE_EM410X);
+    if (buffer == NULL) {
+        NRF_LOG_ERROR("CLONE LF: no buffer for EM410x");
+        offline_status_error();
+        if (!was_in_reader_mode) {
+            tag_mode_enter();
+        }
+        return;
+    }
+    memcpy(buffer->buffer, &card_buffer[2], LF_EM410X_TAG_ID_SIZE);
+    tag_emulation_load_by_buffer(TAG_TYPE_EM410X, false);
+    NRF_LOG_INFO("CLONE LF: EM410x ID copied into slot %d", target);
+
+    // Persist nick + slot data.
+    char *nick = "lf-cloned";
+    uint8_t nick_buffer[36];
+    nick_buffer[0] = strlen(nick);
+    memcpy(nick_buffer + 1, nick, nick_buffer[0]);
+    fds_slot_record_map_t map_info;
+    get_fds_map_by_slot_sense_type_for_nick(target, TAG_SENSE_LF, &map_info);
+    fds_write_sync(map_info.id, map_info.key, sizeof(nick_buffer), nick_buffer);
+
+    tag_emulation_save();
+
+    offline_status_ok();
+
+    if (!was_in_reader_mode) {
+        tag_mode_enter();
+    }
+
+    // Same LED reset as the HF clone: stop the running marquee, clear, then
+    // light only the now-active slot.
+    rgb_marquee_stop();
+    uint32_t *led_pins = hw_get_led_array();
+    for (int i = 0; i < RGB_LIST_NUM; i++) {
+        nrf_gpio_pin_clear(led_pins[i]);
+    }
+    set_slot_light_color(get_color_by_slot(tag_emulation_get_slot()));
+    light_up_by_slot();
+}
+
 #endif
 
 /**@brief Execute the corresponding logic based on the functional settings of the buttons.
@@ -1133,6 +1255,9 @@ static void run_button_function_by_settings(settings_button_function_t sbf) {
 #if defined(PROJECT_CHAMELEON_ULTRA)
         case SettingsButtonCloneIcUid:
             btn_fn_copy_ic_uid();
+            break;
+        case SettingsButtonCloneLfUid:
+            btn_fn_copy_lf_uid();
             break;
         case SettingsButtonNfcFieldGenerator:
             if (!m_is_field_on) {

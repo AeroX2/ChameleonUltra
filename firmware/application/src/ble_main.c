@@ -501,7 +501,10 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context) {
  *
  * @details This function initializes the SoftDevice and the BLE event interrupt.
  */
-static void ble_stack_init(void) {
+// SoftDevice + BLE stack enable only. MUST run early in boot (it claims
+// interrupts/RAM and sd_power_* depends on it). Split from the heavier service
+// setup so boot can enable the stack, start emulation, then init services.
+void ble_stack_init(void) {
     ret_code_t err_code;
 
     err_code = nrf_sdh_enable_request();
@@ -815,18 +818,25 @@ void battery_monitor_init(void) {
 /**
  * @brief Function for init ble slave.
  */
-void ble_slave_init(void) {
-    if (m_ble_initialized) {
-        return;                         // Already initialized; nothing to do.
-    }
-    ble_stack_init();                   // BLE protocol stack initialization
+// GAP/GATT/services/advertising/peer-manager setup. The heavier part of
+// bringing BLE up, and not needed for the card to answer a reader, so boot
+// defers it until after emulation has started.
+void ble_services_init(void) {
     gap_params_init();                  // GAP parameter initialization
     gatt_init();                        // Gatt protocol initialization
     services_init();                    // Initialization of service characteristics
     advertising_init();                 // Broadcast parameter initialization
     conn_params_init();                 // Connection parameter initialization
     peer_manager_init();                // Peer manager Initialization
-    m_ble_initialized = true;           // Mark the stack as ready.
+    m_ble_initialized = true;           // Mark the stack as fully ready.
+}
+
+void ble_slave_init(void) {
+    if (m_ble_initialized) {
+        return;                         // Already initialized; nothing to do.
+    }
+    ble_stack_init();                   // SoftDevice + BLE stack enable
+    ble_services_init();                // GAP/GATT/services/advertising/peer-mgr
 }
 
 void register_lf_adc_callback(lf_adc_callback_t cb) {

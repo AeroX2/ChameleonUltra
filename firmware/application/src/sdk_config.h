@@ -11934,13 +11934,18 @@
 // <1=> NRF_CLOCK_LF_SRC_XTAL
 // <2=> NRF_CLOCK_LF_SRC_SYNTH
 
+// Use the internal RC oscillator (0) instead of the external 32kHz crystal (1).
+// The crystal can take ~hundreds of ms to start, and the SoftDevice waits for
+// it during enable -- which delays boot (and time-to-emulation on a reader
+// tap). RC starts instantly; the SoftDevice auto-calibrates it (CTIV below).
 #ifndef NRF_SDH_CLOCK_LF_SRC
-#define NRF_SDH_CLOCK_LF_SRC 1
+#define NRF_SDH_CLOCK_LF_SRC 0
 #endif
 
 // <o> NRF_SDH_CLOCK_LF_RC_CTIV - SoftDevice calibration timer interval.
+// Calibrate the RC oscillator every 16 * 250ms = 4s (standard RC setting).
 #ifndef NRF_SDH_CLOCK_LF_RC_CTIV
-#define NRF_SDH_CLOCK_LF_RC_CTIV 0
+#define NRF_SDH_CLOCK_LF_RC_CTIV 16
 #endif
 
 // <o> NRF_SDH_CLOCK_LF_RC_TEMP_CTIV - SoftDevice calibration timer interval under constant temperature.
@@ -11948,7 +11953,7 @@
 // <i>  if the temperature has not changed.
 
 #ifndef NRF_SDH_CLOCK_LF_RC_TEMP_CTIV
-#define NRF_SDH_CLOCK_LF_RC_TEMP_CTIV 0
+#define NRF_SDH_CLOCK_LF_RC_TEMP_CTIV 2
 #endif
 
 // <o> NRF_SDH_CLOCK_LF_ACCURACY  - External clock accuracy used in the LL to compute timing.
@@ -11966,8 +11971,10 @@
 // <10=> NRF_CLOCK_LF_ACCURACY_2_PPM
 // <11=> NRF_CLOCK_LF_ACCURACY_1_PPM
 
+// RC oscillator accuracy: 500 ppm (1) — conservative for the calibrated RC,
+// was 20 ppm (7) for the crystal. Wider LL timing windows; slightly more power.
 #ifndef NRF_SDH_CLOCK_LF_ACCURACY
-#define NRF_SDH_CLOCK_LF_ACCURACY 7
+#define NRF_SDH_CLOCK_LF_ACCURACY 1
 #endif
 
 // </h>

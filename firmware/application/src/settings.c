@@ -38,7 +38,7 @@ void settings_init_button_press_config(void) {
 
 // add on version3
 void settings_init_button_long_press_config(void) {
-    config.button_a_long_press = SettingsButtonCloneIcUid;
+    config.button_a_long_press = SettingsButtonShowBattery;
     config.button_b_long_press = SettingsButtonShowBattery;
 }
 
@@ -60,16 +60,15 @@ void settings_init_sleep_timeout_config(void) {
 
 // add on version7
 void settings_init_double_button_press_config(void) {
-    config.button_a_double = SettingsButtonDisable;
-    config.button_b_double = SettingsButtonDisable;
+    config.button_a_double = SettingsButtonCloneLfUid;  // A double-click -> clone LF (EM410x)
+    config.button_b_double = SettingsButtonCloneIcUid;  // B double-click -> clone HF (UID)
 }
 
 // add on version8 (default updated in version9 to toggle the BLE radio)
 void settings_init_chord_button_press_config(void) {
-    // Default the A+B chord to "show battery". The BLE-off path currently has a
-    // boot-stability issue, so the chord must not default to toggling BLE.
-    // Users can rebind it from the client/GUI.
-    config.button_chord = SettingsButtonShowBattery;
+    // A+B chord toggles the BLE radio. Safe now that the BLE-off boot crash is
+    // fixed (the SoftDevice is always initialized at boot).
+    config.button_chord = SettingsButtonToggleBle;
 }
 
 // add on version9
@@ -134,6 +133,15 @@ void settings_migrate(void) {
                 config.button_chord = SettingsButtonShowBattery;
             }
             config.ble_radio_enable = true;
+
+        case 10:
+            // Adopt the preferred default bindings. The BLE-off crash is fixed
+            // (SoftDevice always initialized), so the A+B chord toggling BLE is
+            // safe again. Applied to existing devices on update.
+            config.button_a_long_press = SettingsButtonShowBattery;  // A long -> battery
+            config.button_a_double     = SettingsButtonCloneLfUid;   // A 2x   -> clone LF
+            config.button_b_double     = SettingsButtonCloneIcUid;   // B 2x   -> clone HF
+            config.button_chord        = SettingsButtonToggleBle;    // A+B    -> toggle BLE
 
             /*
              * Add new migration steps ABOVE THIS COMMENT

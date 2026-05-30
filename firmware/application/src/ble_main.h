@@ -12,6 +12,8 @@ extern uint8_t percentage_batt_lvl;
 typedef void (*lf_adc_callback_t)(nrf_saadc_value_t *, size_t);
 
 void ble_slave_init(void);
+void ble_stack_init(void);
+void ble_services_init(void);
 void battery_monitor_init(void);
 bool is_ble_initialized(void);
 void advertising_start(bool erase_bonds);

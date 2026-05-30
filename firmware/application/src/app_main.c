@@ -28,7 +28,6 @@ NRF_LOG_MODULE_REGISTER();
 
 #include "app_cmd.h"
 #include "ble_main.h"
-#include "nrf_sdh.h"
 #include "bsp_delay.h"
 #include "bsp_time.h"
 #include "bsp_wdt.h"
@@ -70,10 +69,6 @@ APP_TIMER_DEF(m_button_b_dblclick_timer);   // Awaiting second-click window (B)
 
 static bool m_is_b_btn_press = false;
 static bool m_is_a_btn_press = false;
-// BLE services init is deferred until after emulation starts at boot, so
-// check_wakeup_src() can't advertise directly -- it flags here and main()
-// advertises after ble_services_init().
-static bool m_advertise_after_init = false;
 
 static bool m_is_b_btn_release = false;
 static bool m_is_a_btn_release = false;
@@ -661,10 +656,9 @@ static void system_off_enter(void) {
  */
 static void check_wakeup_src(void) {
     // The reset reason and GPREGRET2 must be read via the SoftDevice when it is
-    // enabled, else through direct register access. Check nrf_sdh_is_enabled()
-    // (not is_ble_initialized()): the SoftDevice is enabled early at boot, but
-    // the BLE services aren't marked "ready" until after emulation starts.
-    if (nrf_sdh_is_enabled()) {
+    // enabled, but through direct register access when the BLE stack was skipped
+    // at boot (radio disabled in settings).
+    if (is_ble_initialized()) {
         sd_power_reset_reason_get(&m_reset_source);
         sd_power_reset_reason_clr(m_reset_source);
 
@@ -696,9 +690,13 @@ static void check_wakeup_src(void) {
 
     if (m_reset_source & NRF_POWER_RESETREAS_OFF_MASK) {
         NRF_LOG_INFO("WakeUp from button");
-        // BLE services aren't up yet here; advertising starts after
-        // ble_services_init() in main(). Flag it.
-        m_advertise_after_init = true;
+        // Only advertise when the BLE stack is up. With the radio disabled in
+        // settings, ble_slave_init() (and the SoftDevice) is skipped at boot,
+        // so calling advertising_start() here would fault (stuck red on every
+        // button wake). When the radio is off we simply don't advertise.
+        if (is_ble_initialized()) {
+            advertising_start(false); // Turn on Bluetooth radio
+        }
 
         // Button wake-up boot animation (non-blocking; plays from the main loop)
         uint8_t animation_config = settings_get_animation_config();
@@ -759,7 +757,9 @@ static void check_wakeup_src(void) {
         // light_up_by_slot();
 
         // Start Bluetooth radio with USB plugged in, no deep hibernation required
-        m_advertise_after_init = true;
+        if (is_ble_initialized()) {
+            advertising_start(false);
+        }
     } else {
         NRF_LOG_INFO("First power system");
 
@@ -795,7 +795,9 @@ static void check_wakeup_src(void) {
         if (nrfx_power_usbstatus_get() != NRFX_POWER_USB_STATE_DISCONNECTED) {
             NRF_LOG_INFO("USB Power found.");
             // usb plugged in can broadcast BLE at will
-            m_advertise_after_init = true;
+            if (is_ble_initialized()) {
+                advertising_start(false);
+            }
         } else {
             sleep_timer_start(SLEEP_DELAY_MS_FIRST_POWER); // Wait a while and go straight to hibernation, do nothing
         }
@@ -1451,13 +1453,15 @@ int main(void) {
     power_management_init();  // Power management initialization
     usb_cdc_init();           // USB cdc emulation initialization
     battery_monitor_init();   // Battery sampling (runs regardless of BLE state)
-    // Enable the SoftDevice/BLE stack EARLY -- it claims interrupts/RAM and
-    // sd_power_* (check_wakeup_src) depends on it, so it can't be deferred. But
-    // the heavier BLE service setup (ble_services_init) IS deferred until after
-    // emulation starts (below), so a reader sees the card without waiting for
-    // it. The SoftDevice is still always enabled (radio-off only suppresses
-    // advertising), so the BLE-off boot crash stays fixed.
-    ble_stack_init();         // SoftDevice + BLE stack enable (services deferred)
+    // Always bring up the SoftDevice/BLE stack. A previous optimization skipped
+    // this when the radio was disabled to save ~500ms boot + idle power, but
+    // leaving the SoftDevice disabled made various sd_*/SoftDevice calls in the
+    // boot and runtime paths fault (stuck red), and guarding every one proved
+    // unreliable. "Radio off" is handled at the advertising layer instead:
+    // advertising_start() refuses to advertise while the radio is disabled, and
+    // the toggle drops any active link -- so the radio stays quiet while the
+    // stack stays safely initialized.
+    ble_slave_init();         // Bluetooth protocol stack initialization
 
     rng_drv_and_srand_init(); // Random number generator initialization
     bsp_timer_init();         // Initialize timeout timer
@@ -1467,22 +1471,14 @@ int main(void) {
     tag_emulation_init();     // Analog card initialization
     rgb_marquee_init();       // Light effect initialization
 
+    ble_passkey_init();       // init ble connect key.
+
     // cmd callback register
     on_data_frame_complete(on_data_frame_received);
 
     check_wakeup_src();       // Detect wake-up source and decide BLE broadcast and subsequent hibernation action according to the wake-up source
 
     tag_mode_enter();         // Enter card emulation mode by default
-
-    // Card is now emulating; finish bringing BLE up. The heavier
-    // GAP/GATT/services/peer-manager setup was deferred from boot for faster
-    // reader response -- do it now, then the passkey, then advertise if the
-    // wake source warranted it.
-    ble_services_init();
-    ble_passkey_init();       // init ble connect key
-    if (m_advertise_after_init) {
-        advertising_start(false);
-    }
 
     // usbd event listener
     APP_ERROR_CHECK(app_usbd_power_events_enable());

@@ -572,6 +572,21 @@ static data_frame_tx_t *cmd_processor_hf14a_set_field_off(uint16_t cmd, uint16_t
     return data_frame_make(cmd, STATUS_SUCCESS, 0, NULL);
 }
 
+static data_frame_tx_t *cmd_processor_hf14a_set_rx_gain(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
+    if (length != 1) {
+        return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+    }
+    // Only RFCfgReg[6:4] is meaningful; the setter masks it. Applied on the next
+    // reader reset (e.g. the scan you run right after), so no mode check needed.
+    pcd_14a_reader_set_rx_gain(data[0]);
+    return data_frame_make(cmd, STATUS_SUCCESS, 0, NULL);
+}
+
+static data_frame_tx_t *cmd_processor_hf14a_get_rx_gain(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
+    uint8_t gain = pcd_14a_reader_get_rx_gain();
+    return data_frame_make(cmd, STATUS_SUCCESS, 1, &gain);
+}
+
 #endif
 
 static data_frame_tx_t *cmd_processor_hf14a_raw(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
@@ -3094,6 +3109,8 @@ static cmd_data_map_t m_data_cmd_map[] = {
     {    DATA_CMD_LF_SNIFF,                     before_reader_run,           cmd_processor_lf_sniff,                      NULL                   },
     {    DATA_CMD_HF14A_SNIFF,                  NULL,                        cmd_processor_hf14a_sniff,                   NULL                   },
     {    DATA_CMD_HF14A_AUTH_TRACE,             before_hf_reader_run,        cmd_processor_hf14a_auth_trace,              after_hf_reader_run    },
+    {    DATA_CMD_HF14A_SET_RX_GAIN,            NULL,                        cmd_processor_hf14a_set_rx_gain,             NULL                   },
+    {    DATA_CMD_HF14A_GET_RX_GAIN,            NULL,                        cmd_processor_hf14a_get_rx_gain,             NULL                   },
 
 #endif
 

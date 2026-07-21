@@ -186,6 +186,8 @@ extern "C" {
 void pcd_14a_reader_init(void);
 void pcd_14a_reader_uninit(void);
 void pcd_14a_reader_reset(void);
+void pcd_14a_reader_set_rx_gain(uint8_t gain);
+uint8_t pcd_14a_reader_get_rx_gain(void);
 void pcd_14a_reader_antenna_on(void);
 void pcd_14a_reader_antenna_off(void);
 

@@ -205,6 +205,12 @@ void pcd_14a_reader_init(void) {
 #define RC522_RX_GAIN 0x70
 #endif
 
+// Live receiver gain, applied on every reader reset. Defaults to RC522_RX_GAIN
+// and can be changed at runtime via pcd_14a_reader_set_rx_gain() for on-device
+// tuning (e.g. dialing back from max when a card at contact overloads the
+// receiver but reads fine with a small air gap).
+static uint8_t m_rx_gain = RC522_RX_GAIN;
+
 /**
 * @brief  : Reset the card reader
 * @retval : Status value hf_tag_ok, success
@@ -232,10 +238,24 @@ void pcd_14a_reader_reset(void) {
 
         // Raise receiver gain above the low power-on default so weak/detuned
         // tags are still detected (RFCfgReg[6:4] = RxGain). See RC522_RX_GAIN.
-        write_register_single(RFCfgReg, RC522_RX_GAIN);
+        write_register_single(RFCfgReg, m_rx_gain);
 
         bsp_delay_ms(10);
     }
+}
+
+// Set the RC522 receiver gain at runtime (RFCfgReg[6:4] = RxGain). Only the
+// gain field is honoured; other bits are masked off. Persists across soft
+// resets and is applied immediately when the reader is initialised.
+void pcd_14a_reader_set_rx_gain(uint8_t gain) {
+    m_rx_gain = gain & 0x70;
+    if (m_reader_is_init) {
+        write_register_single(RFCfgReg, m_rx_gain);
+    }
+}
+
+uint8_t pcd_14a_reader_get_rx_gain(void) {
+    return m_rx_gain;
 }
 
 /**

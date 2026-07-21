@@ -75,6 +75,8 @@
 #define DATA_CMD_HF14A_RAW                      (2010)
 #define DATA_CMD_HF14A_SCAN_KEEP                (2016)  /* scan+RATS, keep field alive for APDU exchange */
 #define DATA_CMD_HF14A_AUTH_TRACE               (2017)  /* full anticoll + Crypto1 auth, every frame returned for inspection */
+#define DATA_CMD_HF14A_SET_RX_GAIN              (2018)  /* set RC522 receiver gain (RFCfgReg RxGain) for on-device tuning */
+#define DATA_CMD_HF14A_GET_RX_GAIN              (2019)  /* read back current RC522 receiver gain */
 #define DATA_CMD_MF1_MANIPULATE_VALUE_BLOCK     (2011)
 #define DATA_CMD_MF1_CHECK_KEYS_OF_SECTORS      (2012)
 #define DATA_CMD_MF1_HARDNESTED_ACQUIRE         (2013)

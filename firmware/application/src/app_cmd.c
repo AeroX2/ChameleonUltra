@@ -576,9 +576,11 @@ static data_frame_tx_t *cmd_processor_hf14a_set_rx_gain(uint16_t cmd, uint16_t s
     if (length != 1) {
         return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
     }
-    // Only RFCfgReg[6:4] is meaningful; the setter masks it. Applied on the next
-    // reader reset (e.g. the scan you run right after), so no mode check needed.
+    // Only RFCfgReg[6:4] is meaningful; the setter masks it. Applied live on the
+    // next reader reset (no mode check needed) and staged into settings so a
+    // following SAVE_SETTINGS persists it across reboots.
     pcd_14a_reader_set_rx_gain(data[0]);
+    settings_set_hf_rx_gain(data[0]);
     return data_frame_make(cmd, STATUS_SUCCESS, 0, NULL);
 }
 

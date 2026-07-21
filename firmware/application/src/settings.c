@@ -76,6 +76,11 @@ void settings_init_ble_radio_enable_config(void) {
     config.ble_radio_enable = true;
 }
 
+// add on version12
+void settings_init_hf_rx_gain_config(void) {
+    settings_set_hf_rx_gain(SETTINGS_HF_RX_GAIN_DEFAULT);
+}
+
 void settings_init_config(void) {
     settings_update_version_for_config();
     config.animation_config = SettingsAnimationModeFull; // add on version1
@@ -87,6 +92,7 @@ void settings_init_config(void) {
     settings_init_double_button_press_config();
     settings_init_chord_button_press_config();
     settings_init_ble_radio_enable_config();
+    settings_init_hf_rx_gain_config();
 }
 
 void settings_migrate(void) {
@@ -142,6 +148,11 @@ void settings_migrate(void) {
             config.button_a_double     = SettingsButtonCloneLfUid;   // A 2x   -> clone LF
             config.button_b_double     = SettingsButtonCloneIcUid;   // B 2x   -> clone HF
             config.button_chord        = SettingsButtonToggleBle;    // A+B    -> toggle BLE
+
+        case 11:
+            // add on version12: seed the persisted RC522 receiver gain. The v11
+            // struct's reserved bits are unspecified, so default it explicitly.
+            settings_init_hf_rx_gain_config();
 
             /*
              * Add new migration steps ABOVE THIS COMMENT
@@ -434,4 +445,14 @@ uint32_t settings_get_sleep_timeout(void) {
 
 void settings_set_sleep_timeout(uint8_t seconds) {
     config.sleep_timeout = seconds;
+}
+
+// Stored as the 3-bit RFCfgReg RxGain index; the API deals in the full register
+// byte (0x40/0x50/0x60/0x70) to match rc522 and the wire command.
+uint8_t settings_get_hf_rx_gain(void) {
+    return (uint8_t)(config.hf_rx_gain << 4);
+}
+
+void settings_set_hf_rx_gain(uint8_t reg_value) {
+    config.hf_rx_gain = (reg_value >> 4) & 0x07;
 }

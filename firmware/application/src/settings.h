@@ -5,7 +5,8 @@
 
 #include "utils.h"
 
-#define SETTINGS_CURRENT_VERSION 11
+#define SETTINGS_CURRENT_VERSION 12
+#define SETTINGS_HF_RX_GAIN_DEFAULT 0x60  // 43 dB; must match RC522_RX_GAIN in rc522.c
 #define SETTINGS_SLEEP_TIMEOUT_DEFAULT_S 8   // default wake timeout in seconds (matches SLEEP_DELAY_MS_BUTTON_WAKEUP)
 #define SETTINGS_SLEEP_TIMEOUT_MIN_S      5
 #define SETTINGS_SLEEP_TIMEOUT_MAX_S      60
@@ -68,7 +69,10 @@ typedef struct ALIGN_U32 {
 
     // 1 byte (add on version8)
     uint8_t button_chord : 4;
-    uint8_t reserved1 : 4;
+    // add on version12: persisted RC522 receiver gain, stored as the 3-bit
+    // RFCfgReg RxGain index (4=33dB, 5=38dB, 6=43dB, 7=48dB).
+    uint8_t hf_rx_gain : 3;
+    uint8_t reserved1 : 1;
 
     /*
      * Warning !!!!!!!!!!!!!!!!!!!!!! <-------------
@@ -106,4 +110,7 @@ void settings_init_ble_radio_enable_config(void);
 uint32_t settings_get_sleep_timeout(void);
 void settings_set_sleep_timeout(uint8_t seconds);
 void settings_init_sleep_timeout_config(void);
+uint8_t settings_get_hf_rx_gain(void);          // returns RFCfgReg byte (0x40/0x50/0x60/0x70)
+void settings_set_hf_rx_gain(uint8_t reg_value);
+void settings_init_hf_rx_gain_config(void);
 #endif

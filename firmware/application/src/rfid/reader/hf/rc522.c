@@ -201,8 +201,12 @@ void pcd_14a_reader_init(void) {
 // Raise the gain to improve read/write range. If maxing it makes a tag that
 // currently works flaky (extra noise picked up), step down one level.
 //   0x40 = 33 dB (~power-on default)   0x50 = 38 dB   0x60 = 43 dB   0x70 = 48 dB (max)
+// Default 0x60 (43 dB): one step below max. 48 dB (0x70) reads at range but
+// saturates the receiver with a card at contact; 43 dB reads both. The boot
+// code overrides this with the persisted value (settings_get_hf_rx_gain), so
+// this is only the factory default / pre-settings-load value.
 #ifndef RC522_RX_GAIN
-#define RC522_RX_GAIN 0x70
+#define RC522_RX_GAIN 0x60
 #endif
 
 // Live receiver gain, applied on every reader reset. Defaults to RC522_RX_GAIN

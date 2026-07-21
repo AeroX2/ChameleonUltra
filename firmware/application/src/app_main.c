@@ -1445,6 +1445,9 @@ int main(void) {
 
     fds_util_init();          // Initialize fds tool
     settings_load_config();   // Load settings from flash
+#if defined(PROJECT_CHAMELEON_ULTRA)
+    pcd_14a_reader_set_rx_gain(settings_get_hf_rx_gain());  // apply persisted HF reader gain (Ultra only)
+#endif
 
     init_leds();              // LED initialization
     log_init();               // Log initialization

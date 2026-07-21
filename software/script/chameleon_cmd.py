@@ -97,6 +97,15 @@ class ChameleonCMD:
         """
         self.change_device_mode(reader_mode)
 
+    def get_hf14a_rx_gain(self) -> int:
+        """Get RC522 HF reader receiver gain (RFCfgReg byte 0x40/0x50/0x60/0x70)."""
+        resp = self.device.send_cmd_sync(Command.HF14A_GET_RX_GAIN)
+        return resp.data[0]
+
+    def set_hf14a_rx_gain(self, gain: int):
+        """Set RC522 HF reader gain; call save_settings() to persist across reboots."""
+        self.device.send_cmd_sync(Command.HF14A_SET_RX_GAIN, struct.pack('!B', gain))
+
     @expect_response(Status.HF_TAG_OK)
     def hf14a_scan(self):
         """

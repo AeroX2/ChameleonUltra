@@ -1225,6 +1225,35 @@ class HF14AConfig(DeviceRequiredUnit):
         print(self.Rats.format(config["rats"]))
 
 
+@hf_14a.command("rxgain")
+class HF14ARxGain(DeviceRequiredUnit):
+    # dB label -> RFCfgReg RxGain byte
+    GAINS = {33: 0x40, 38: 0x50, 43: 0x60, 48: 0x70}
+
+    def args_parser(self) -> ArgumentParserNoExit:
+        parser = ArgumentParserNoExit()
+        parser.description = (
+            "Get or set the RC522 HF reader receiver gain. Higher gain = more "
+            "read range, but too high can fail to read a card touching the "
+            "antenna. With no argument, shows the current gain. Setting persists "
+            "across reboots. Ultra only."
+        )
+        parser.add_argument("-g", "--gain", type=int, choices=sorted(self.GAINS.keys()),
+                            metavar="{33,38,43,48}", help="Set gain in dB and persist it")
+        return parser
+
+    def on_exec(self, args: argparse.Namespace):
+        db_by_reg = {v: k for k, v in self.GAINS.items()}
+        if args.gain is None:
+            reg = self.cmd.get_hf14a_rx_gain()
+            print(f" - Current HF reader gain: {db_by_reg.get(reg, '?')} dB (0x{reg:02x})")
+            return
+        reg = self.GAINS[args.gain]
+        self.cmd.set_hf14a_rx_gain(reg)
+        self.cmd.save_settings()
+        print(f" - HF reader gain set to {args.gain} dB (0x{reg:02x}) and saved")
+
+
 @hf_14a.command("scan")
 class HF14AScan(ReaderRequiredUnit):
     def args_parser(self) -> ArgumentParserNoExit:

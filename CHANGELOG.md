@@ -4,6 +4,9 @@ This project uses the changelog in accordance with [keepchangelog](http://keepac
 
 ## [unreleased][unreleased]
  - When the BLE radio is switched off (A+B chord), the SoftDevice/BLE stack is now skipped at boot instead of just suppressing advertising, saving the stack init time and idle power; it is brought up on demand when BLE is re-enabled or before flash save. Battery monitoring was decoupled from the BLE init so it keeps working with the radio off.
+
+## [v2.2.0][2026-07-04]
+ - Added Jablotron LF protocol support: read, emulate and T55xx clone (@midlan)
  - Added IDTECK LF protocol support: tag emulation (PSK1 RF/32) and T55xx clone. No reader path yet; PSK demodulation on the envelope-only receive chain is left for a follow-up.
  - Added PAC/Stanley LF protocol support: read, emulate and T55xx clone (@kevihiiin, @danieltwagner)
  - Fix firmware application USB serial number (@taichunmin)
@@ -24,6 +27,7 @@ This project uses the changelog in accordance with [keepchangelog](http://keepac
  - Fix Windows build (@suut)
  - Added `hf 14a config` to deal with badly configured cards (@azuwis)
  - New Symmetrical LED Animation Mode and Improved Minimal Mode (@WillyJL)
+ - Fix MF1 state reset logic and access control conditions (@unkernet)
 
 ## [v2.1.0][2025-09-02]
  - Added UV, formatter and linter. Contribution guidelines. (@GameTec-live)

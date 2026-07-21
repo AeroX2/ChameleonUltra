@@ -195,6 +195,16 @@ void pcd_14a_reader_init(void) {
     }
 }
 
+// RC522 receiver gain — RFCfgReg bits [6:4] (RxGain). The chip powers up at
+// roughly 33 dB, well below its 48 dB maximum. At the low default, weak or
+// slightly-detuned tags that other readers handle can fail to be detected.
+// Raise the gain to improve read/write range. If maxing it makes a tag that
+// currently works flaky (extra noise picked up), step down one level.
+//   0x40 = 33 dB (~power-on default)   0x50 = 38 dB   0x60 = 43 dB   0x70 = 48 dB (max)
+#ifndef RC522_RX_GAIN
+#define RC522_RX_GAIN 0x70
+#endif
+
 /**
 * @brief  : Reset the card reader
 * @retval : Status value hf_tag_ok, success
@@ -219,6 +229,10 @@ void pcd_14a_reader_reset(void) {
         write_register_single(TxAutoReg, 0x40);
         // Define common mode and receive common mode and receiveMiFare cartoon communication, CRC initial value 0x6363
         write_register_single(ModeReg, 0x3D);
+
+        // Raise receiver gain above the low power-on default so weak/detuned
+        // tags are still detected (RFCfgReg[6:4] = RxGain). See RC522_RX_GAIN.
+        write_register_single(RFCfgReg, RC522_RX_GAIN);
 
         bsp_delay_ms(10);
     }

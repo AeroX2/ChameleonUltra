@@ -20,7 +20,20 @@ typedef struct {
     uint32_t issue_level;
     uint32_t oem;
     uint8_t format;
+    bool parity_valid;
 } wiegand_card_t;
+
+typedef enum {
+    WIEGAND_CANDIDATE_HAS_PARITY = (1U << 0),
+    WIEGAND_CANDIDATE_PARITY_VALID = (1U << 1),
+} wiegand_candidate_flag_t;
+
+typedef struct {
+    wiegand_card_t card;
+    uint8_t flags;
+} wiegand_candidate_t;
+
+#define WIEGAND_MAX_CANDIDATES (8)
 
 typedef struct {
     bool has_parity;
@@ -79,11 +92,13 @@ typedef enum {
 typedef struct {
     card_format_t format;
     uint64_t (*pack)(wiegand_card_t *card);
-    wiegand_card_t *(*unpack)(uint64_t hi, uint64_t lo);
+    bool (*unpack)(uint64_t hi, uint64_t lo, wiegand_card_t *card);
     uint32_t bits;  // number of bits in this format
     card_format_descriptor_t fields;
 } card_format_table_t;
 
 extern uint64_t pack(wiegand_card_t *card);
+extern size_t unpack_all(uint8_t format_hint, uint8_t length, uint64_t hi, uint64_t lo,
+                         wiegand_candidate_t *candidates, size_t capacity);
 extern wiegand_card_t *unpack(uint8_t format_hint, uint8_t length, uint64_t hi, uint64_t lo);
 extern wiegand_card_t *wiegand_card_alloc();

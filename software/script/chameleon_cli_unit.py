@@ -5844,12 +5844,37 @@ class LFHIDProxRead(LFHIDIdReadArgsUnit, ReaderRequiredUnit):
     def args_parser(self) -> ArgumentParserNoExit:
         parser = ArgumentParserNoExit()
         parser.description = "Scan hid prox tag and print card format, facility code, card number, issue level and OEM code"
-        return self.add_card_arg(parser, required=True)
+        parser = self.add_card_arg(parser, required=True)
+        parser.add_argument(
+            "-a",
+            "--all",
+            action="store_true",
+            help="Show every compatible format and its parity status",
+        )
+        return parser
 
     def on_exec(self, args: argparse.Namespace):
         format = 0
         if args.format is not None:
             format = HIDFormat[args.format].value
+        if args.all:
+            candidates, total = self.cmd.hidprox_scan_all(format)
+            for index, candidate in enumerate(candidates, start=1):
+                print(f"HIDProx/{HIDFormat(candidate['format'])} [{index}/{total}]")
+                if candidate['flags'] & 0x01:
+                    parity = "ok" if candidate['flags'] & 0x02 else "fail"
+                    print(f" Parity: {parity}")
+                if candidate['fc'] > 0:
+                    print(f" FC: {color_string((CG, candidate['fc']))}")
+                if candidate['il'] > 0:
+                    print(f" IL: {color_string((CG, candidate['il']))}")
+                if candidate['oem'] > 0:
+                    print(f" OEM: {color_string((CG, candidate['oem']))}")
+                print(f" CN: {color_string((CG, candidate['cn']))}")
+            if total > len(candidates):
+                print(f" - {total - len(candidates)} additional candidates were truncated")
+            return
+
         (format, fc, cn1, cn2, il, oem) = self.cmd.hidprox_scan(format)
         cn = (cn1 << 32) + cn2
         print(f"HIDProx/{HIDFormat(format)}")

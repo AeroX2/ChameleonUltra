@@ -44,6 +44,14 @@ uint8_t scan_hidprox(uint8_t *data, uint8_t format_hint) {
     return STATUS_LF_TAG_NO_FOUND;
 }
 
+uint8_t scan_hidprox_candidates(wiegand_candidate_t *candidates, size_t capacity, size_t *count,
+                                uint8_t format_hint) {
+    if (hidprox_read_candidates(candidates, capacity, count, format_hint, g_timeout_readem_ms)) {
+        return STATUS_LF_TAG_OK;
+    }
+    return STATUS_LF_TAG_NO_FOUND;
+}
+
 /**
  * @brief Search ioProx tag
  * @param output 16 bytes ioprox_codec_t->data layout: version, facility code, card number, raw8

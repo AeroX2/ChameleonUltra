@@ -16,6 +16,8 @@ uint8_t scan_ioprox(uint8_t *uid, uint8_t format_hint);
 uint8_t decode_ioprox_raw(uint8_t *raw8, uint8_t *output);
 uint8_t encode_ioprox_params(uint8_t ver, uint8_t fc, uint16_t cn, uint8_t *out);
 uint8_t scan_hidprox(uint8_t *uid, uint8_t format_hint);
+uint8_t scan_hidprox_candidates(wiegand_candidate_t *candidates, size_t capacity, size_t *count,
+                                uint8_t format_hint);
 uint8_t scan_pac(uint8_t *card_id);
 uint8_t scan_viking(uint8_t *uid);
 uint8_t scan_jablotron(uint8_t *uid);

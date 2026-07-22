@@ -39,10 +39,7 @@ static void uninit_hidprox_hw(void) {
     lf_125khz_radio_saadc_disable();
 }
 
-bool hidprox_read(uint8_t *data, uint8_t format_hint, uint32_t timeout_ms) {
-    void *codec = hidprox.alloc();
-    hidprox.decoder.start(codec, format_hint);
-
+static bool hidprox_capture(hidprox_codec *codec, uint32_t timeout_ms) {
     cb_init(&cb, HIDPROX_BUFFER_SIZE, sizeof(uint16_t));
     init_hidprox_hw();
     start_lf_125khz_radio();
@@ -53,7 +50,6 @@ bool hidprox_read(uint8_t *data, uint8_t format_hint, uint32_t timeout_ms) {
         uint16_t val = 0;
         while (!ok && NO_TIMEOUT_1MS(p_at, timeout_ms) && cb_pop_front(&cb, &val)) {
             if (hidprox.decoder.feed(codec, val)) {
-                memcpy(data, hidprox.get_data(codec), hidprox.data_size);
                 ok = true;
                 break;
             }
@@ -64,6 +60,35 @@ bool hidprox_read(uint8_t *data, uint8_t format_hint, uint32_t timeout_ms) {
     stop_lf_125khz_radio();
     uninit_hidprox_hw();
     cb_free(&cb);
+
+    return ok;
+}
+
+bool hidprox_read(uint8_t *data, uint8_t format_hint, uint32_t timeout_ms) {
+    hidprox_codec *codec = hidprox.alloc();
+    hidprox.decoder.start(codec, format_hint);
+
+    bool ok = hidprox_capture(codec, timeout_ms);
+    if (ok) {
+        memcpy(data, hidprox.get_data(codec), hidprox.data_size);
+    }
+
+    hidprox.free(codec);
+    return ok;
+}
+
+bool hidprox_read_candidates(wiegand_candidate_t *candidates, size_t capacity, size_t *count,
+                             uint8_t format_hint, uint32_t timeout_ms) {
+    hidprox_codec *codec = hidprox.alloc();
+    hidprox.decoder.start(codec, format_hint);
+    codec->return_all_candidates = true;
+
+    bool ok = hidprox_capture(codec, timeout_ms);
+    if (ok) {
+        *count = hidprox_get_candidates(codec, candidates, capacity);
+    } else {
+        *count = 0;
+    }
 
     hidprox.free(codec);
     return ok;

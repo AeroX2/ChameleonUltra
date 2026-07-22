@@ -742,6 +742,42 @@ static data_frame_tx_t *cmd_processor_hidprox_scan(uint16_t cmd, uint16_t status
     return data_frame_make(cmd, STATUS_LF_TAG_OK, sizeof(card_data), card_data);
 }
 
+#define HIDPROX_SCAN_ALL_VERSION      (1)
+#define HIDPROX_SCAN_ALL_HEADER_SIZE  (3)
+#define HIDPROX_CANDIDATE_RECORD_SIZE (14)
+
+static data_frame_tx_t *cmd_processor_hidprox_scan_all(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
+    wiegand_candidate_t candidates[WIEGAND_MAX_CANDIDATES] = {0};
+    size_t total = 0;
+    uint8_t format_hint = (data != NULL && length > 0) ? data[0] : 0;
+
+    status = scan_hidprox_candidates(candidates, ARRAY_SIZE(candidates), &total, format_hint);
+    if (status != STATUS_LF_TAG_OK) {
+        return data_frame_make(cmd, status, 0, NULL);
+    }
+
+    size_t count = MIN(total, ARRAY_SIZE(candidates));
+    uint8_t response[HIDPROX_SCAN_ALL_HEADER_SIZE +
+                     HIDPROX_CANDIDATE_RECORD_SIZE * WIEGAND_MAX_CANDIDATES] = {0};
+    response[0] = HIDPROX_SCAN_ALL_VERSION;
+    response[1] = count;
+    response[2] = MIN(total, UINT8_MAX);
+
+    for (size_t i = 0; i < count; i++) {
+        uint8_t *record = response + HIDPROX_SCAN_ALL_HEADER_SIZE + i * HIDPROX_CANDIDATE_RECORD_SIZE;
+        record[0] = candidates[i].card.format;
+        record[1] = candidates[i].flags;
+        num_to_bytes(candidates[i].card.facility_code, 4, record + 2);
+        num_to_bytes(candidates[i].card.card_number, 5, record + 6);
+        record[11] = candidates[i].card.issue_level;
+        num_to_bytes(candidates[i].card.oem, 2, record + 12);
+    }
+
+    return data_frame_make(cmd, STATUS_LF_TAG_OK,
+                           HIDPROX_SCAN_ALL_HEADER_SIZE + count * HIDPROX_CANDIDATE_RECORD_SIZE,
+                           response);
+}
+
 static data_frame_tx_t *cmd_processor_ioprox_scan(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
     uint8_t card_data[16] = {0};
     uint8_t hint = (data != NULL) ? data[0] : 0;
@@ -3036,6 +3072,7 @@ static cmd_data_map_t m_data_cmd_map[] = {
     {    DATA_CMD_EM410X_WRITE_TO_T55XX,        before_reader_run,           cmd_processor_em410x_write_to_t55xx,         NULL                   },
     {    DATA_CMD_EM410X_ELECTRA_WRITE_TO_T55XX, before_reader_run,           cmd_processor_em410x_electra_write_to_t55xx, NULL                   },
     {    DATA_CMD_HIDPROX_SCAN,                 before_reader_run,           cmd_processor_hidprox_scan,                  NULL                   },
+    {    DATA_CMD_HIDPROX_SCAN_ALL,             before_reader_run,           cmd_processor_hidprox_scan_all,              NULL                   },
     {    DATA_CMD_HIDPROX_WRITE_TO_T55XX,       before_reader_run,           cmd_processor_hidprox_write_to_t55xx,        NULL                   },
     {    DATA_CMD_VIKING_SCAN,                  before_reader_run,           cmd_processor_viking_scan,                   NULL                   },
     {    DATA_CMD_VIKING_WRITE_TO_T55XX,        before_reader_run,           cmd_processor_viking_write_to_t55xx,         NULL                   },

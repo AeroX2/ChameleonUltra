@@ -63,11 +63,11 @@ static uint64_t pack_nonlinear(
     return bits;
 }
 
-static wiegand_card_t *unpack_nonlinear(
+static bool unpack_nonlinear(
     uint64_t hi, uint64_t lo,
     const uint8_t *fc_map, size_t fc_map_size,
-    const uint8_t *cn_map, size_t cn_map_size) {
-    wiegand_card_t *d = wiegand_card_alloc();
+    const uint8_t *cn_map, size_t cn_map_size,
+    wiegand_card_t *d) {
     for (int i = fc_map_size - 1; i >= 0; i--) {
         d->facility_code <<= 1;
         if (IS_SET(lo, fc_map[i])) {
@@ -80,7 +80,7 @@ static wiegand_card_t *unpack_nonlinear(
             d->card_number |= 0x1;
         }
     }
-    return d;
+    return true;
 }
 
 static uint64_t pack_h10301(wiegand_card_t *card) {
@@ -98,15 +98,12 @@ static uint64_t pack_h10301(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_h10301(uint64_t hi, uint64_t lo) {
-    if (!((IS_SET(lo, 0) == oddparity32((lo >> 1) & 0xfff)) &&
-            (IS_SET(lo, 25) == evenparity32((lo >> 13) & 0xfff)))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_h10301(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    d->parity_valid = (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0xfff)) &&
+                      (IS_SET(lo, 25) == evenparity32((lo >> 13) & 0xfff));
     d->facility_code = (lo >> 17) & 0xff;
     d->card_number = (lo >> 1) & 0xffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_ind26(wiegand_card_t *card) {
@@ -128,18 +125,16 @@ static uint64_t pack_ind26(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_ind26(uint64_t hi, uint64_t lo) {
+static bool unpack_ind26(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
     uint32_t odd = (lo >> 1) & 0xfff;         // 32..43
     uint8_t odd_parity = lo & 0x01;           // 44
     uint32_t even = (lo >> 13) & 0xfff;       // 19..31
     uint8_t even_parity = (lo >> 25) & 0x01;  // 18
-    if (!(oddparity32(odd) == odd_parity) && (evenparity32(even) == even_parity)) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+    d->parity_valid = (oddparity32(odd) == odd_parity) &&
+                      (evenparity32(even) == even_parity);
     d->card_number = (lo >> 1) & 0xfff;
     d->facility_code = (lo >> 13) & 0xfff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_ind27(wiegand_card_t *card) {
@@ -149,27 +144,28 @@ static uint64_t pack_ind27(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_ind27(uint64_t hi, uint64_t lo) {
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_ind27(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
     d->facility_code = (lo >> 14) & 0x1fff;
     d->card_number = (lo >> 0) & 0x3fff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_indasc27(wiegand_card_t *card) {
     return pack_nonlinear(card, indasc27_fc_map, sizeof(indasc27_fc_map), indasc27_cn_map, sizeof(indasc27_cn_map));
 }
 
-static wiegand_card_t *unpack_indasc27(uint64_t hi, uint64_t lo) {
-    return unpack_nonlinear(hi, lo, indasc27_fc_map, sizeof(indasc27_fc_map), indasc27_cn_map, sizeof(indasc27_cn_map));
+static bool unpack_indasc27(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    return unpack_nonlinear(hi, lo, indasc27_fc_map, sizeof(indasc27_fc_map),
+                            indasc27_cn_map, sizeof(indasc27_cn_map), d);
 }
 
 static uint64_t pack_tecom27(wiegand_card_t *card) {
     return pack_nonlinear(card, tecom27_fc_map, sizeof(tecom27_fc_map), tecom27_cn_map, sizeof(tecom27_cn_map));
 }
 
-static wiegand_card_t *unpack_tecom27(uint64_t hi, uint64_t lo) {
-    return unpack_nonlinear(hi, lo, tecom27_fc_map, sizeof(tecom27_fc_map), tecom27_cn_map, sizeof(tecom27_cn_map));
+static bool unpack_tecom27(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    return unpack_nonlinear(hi, lo, tecom27_fc_map, sizeof(tecom27_fc_map),
+                            tecom27_cn_map, sizeof(tecom27_cn_map), d);
 }
 
 static uint64_t pack_2804w(wiegand_card_t *card) {
@@ -190,16 +186,13 @@ static uint64_t pack_2804w(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_2804w(uint64_t hi, uint64_t lo) {
-    if (!(((lo >> 27) & 0x1) == (evenparity32((lo >> 14) & 0x1fff)) &&
-            (((lo >> 25) & 0x1) == (oddparity32(lo & 0xDB6DB6))) &&
-            (((lo >> 0) & 0x1) == (oddparity32((lo >> 1) & 0x7ffffff))))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_2804w(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    d->parity_valid = (((lo >> 27) & 0x1) == evenparity32((lo >> 14) & 0x1fff)) &&
+                      (((lo >> 25) & 0x1) == oddparity32(lo & 0xDB6DB6)) &&
+                      (((lo >> 0) & 0x1) == oddparity32((lo >> 1) & 0x7ffffff));
     d->facility_code = (lo >> 16) & 0xff;
     d->card_number = (lo >> 1) & 0x7fff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_ind29(wiegand_card_t *card) {
@@ -209,11 +202,10 @@ static uint64_t pack_ind29(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_ind29(uint64_t hi, uint64_t lo) {
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_ind29(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
     d->card_number = (lo >> 0) & 0xffff;
     d->facility_code = (lo >> 16) & 0x1fff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_atsw30(wiegand_card_t *card) {
@@ -231,15 +223,12 @@ static uint64_t pack_atsw30(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_atsw30(uint64_t hi, uint64_t lo) {
-    if (!(IS_SET(lo, 29) == evenparity32((lo >> 17) & 0xfff) &&
-            IS_SET(lo, 0) == oddparity32((lo >> 1) & 0xffff))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_atsw30(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    d->parity_valid = (IS_SET(lo, 29) == evenparity32((lo >> 17) & 0xfff)) &&
+                      (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0xffff));
     d->facility_code = (lo >> 17) & 0xfff;
     d->card_number = (lo >> 1) & 0xffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_adt31(wiegand_card_t *card) {
@@ -251,11 +240,10 @@ static uint64_t pack_adt31(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_adt31(uint64_t hi, uint64_t lo) {
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_adt31(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
     d->facility_code = (lo >> 26) & 0xf;
     d->card_number = (lo >> 3) & 0x7fffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_hcp32(wiegand_card_t *card) {
@@ -266,10 +254,9 @@ static uint64_t pack_hcp32(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_hcp32(uint64_t hi, uint64_t lo) {
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_hcp32(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
     d->card_number = (lo >> 7) & 0xffffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_hpp32(wiegand_card_t *card) {
@@ -280,11 +267,10 @@ static uint64_t pack_hpp32(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_hpp32(uint64_t hi, uint64_t lo) {
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_hpp32(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
     d->facility_code = (lo >> 19) & 0xfff;
     d->card_number = (lo >> 0) & 0x7ffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_kastle(wiegand_card_t *card) {
@@ -303,19 +289,16 @@ static uint64_t pack_kastle(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_kastle(uint64_t hi, uint64_t lo) {
+static bool unpack_kastle(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
     if (!IS_SET(lo, 30)) {  // Always 1 in this format
-        return NULL;
+        return false;
     }
-    if (!(IS_SET(lo, 31) == evenparity32((lo >> 15) & 0xffff) &&
-            IS_SET(lo, 0) == oddparity32((lo >> 1) & 0x1ffff))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+    d->parity_valid = (IS_SET(lo, 31) == evenparity32((lo >> 15) & 0xffff)) &&
+                      (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0x1ffff));
     d->issue_level = (lo >> 25) & 0x1f;
     d->facility_code = (lo >> 17) & 0xff;
     d->card_number = (lo >> 1) & 0xffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_kantech(wiegand_card_t *card) {
@@ -327,11 +310,10 @@ static uint64_t pack_kantech(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_kantech(uint64_t hi, uint64_t lo) {
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_kantech(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
     d->facility_code = (lo >> 17) & 0xff;
     d->card_number = (lo >> 1) & 0xffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_wie32(wiegand_card_t *card) {
@@ -342,11 +324,10 @@ static uint64_t pack_wie32(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_wie32(uint64_t hi, uint64_t lo) {
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_wie32(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
     d->facility_code = (lo >> 16) & 0xfff;
     d->card_number = (lo >> 0) & 0xffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_d10202(wiegand_card_t *card) {
@@ -364,15 +345,12 @@ static uint64_t pack_d10202(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_d10202(uint64_t hi, uint64_t lo) {
-    if (!((IS_SET(lo, 32) == evenparity32((lo >> 16) & 0xffff)) &&
-            (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0xffff)))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_d10202(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    d->parity_valid = (IS_SET(lo, 32) == evenparity32((lo >> 16) & 0xffff)) &&
+                      (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0xffff));
     d->facility_code = (lo >> 25) & 0x7f;
     d->card_number = (lo >> 1) & 0xffffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_h10306(wiegand_card_t *card) {
@@ -390,15 +368,12 @@ static uint64_t pack_h10306(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_h10306(uint64_t hi, uint64_t lo) {
-    if (!((IS_SET(lo, 33) == evenparity32((lo >> 17) & 0xffff)) &&
-            (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0xffff)))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_h10306(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    d->parity_valid = (IS_SET(lo, 33) == evenparity32((lo >> 17) & 0xffff)) &&
+                      (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0xffff));
     d->facility_code = (lo >> 17) & 0xffff;
     d->card_number = (lo >> 1) & 0xffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_n10002(wiegand_card_t *card) {
@@ -416,15 +391,12 @@ static uint64_t pack_n10002(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_n10002(uint64_t hi, uint64_t lo) {
-    if (!((IS_SET(lo, 33) == evenparity32((lo >> 17) & 0xffff)) &&
-            (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0xffff)))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_n10002(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    d->parity_valid = (IS_SET(lo, 33) == evenparity32((lo >> 17) & 0xffff)) &&
+                      (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0xffff));
     d->facility_code = (lo >> 17) & 0xffff;
     d->card_number = (lo >> 1) & 0xffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_optus(wiegand_card_t *card) {
@@ -437,11 +409,10 @@ static uint64_t pack_optus(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_optus(uint64_t hi, uint64_t lo) {
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_optus(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
     d->card_number = (lo >> 17) & 0xffff;
     d->facility_code = (lo >> 1) & 0x7ff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_smartpass(wiegand_card_t *card) {
@@ -454,12 +425,11 @@ static uint64_t pack_smartpass(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_smartpass(uint64_t hi, uint64_t lo) {
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_smartpass(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
     d->facility_code = (lo >> 20) & 0x1fff;
     d->issue_level = (lo >> 17) & 0x7;
     d->card_number = (lo >> 1) & 0xffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_bqt34(wiegand_card_t *card) {
@@ -477,15 +447,12 @@ static uint64_t pack_bqt34(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_bqt34(uint64_t hi, uint64_t lo) {
-    if (!((IS_SET(lo, 33) == evenparity32((lo >> 17) & 0xffff)) &&
-            (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0xffff)))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_bqt34(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    d->parity_valid = (IS_SET(lo, 33) == evenparity32((lo >> 17) & 0xffff)) &&
+                      (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0xffff));
     d->facility_code = (lo >> 25) & 0xff;
     d->card_number = (lo >> 1) & 0xffffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_c1k35s(wiegand_card_t *card) {
@@ -506,16 +473,13 @@ static uint64_t pack_c1k35s(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_c1k35s(uint64_t hi, uint64_t lo) {
-    if (!(IS_SET(lo, 33) == (evenparity32((lo >> 1) & 0xDB6DB6DB)) &&
-            IS_SET(lo, 0) == (oddparity32((lo >> 2) & 0xDB6DB6DB)) &&
-            IS_SET(lo, 34) == (oddparity32(((lo >> 32) & 0x3) ^ (lo & 0xFFFFFFFF))))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_c1k35s(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    d->parity_valid = (IS_SET(lo, 33) == evenparity32((lo >> 1) & 0xDB6DB6DB)) &&
+                      (IS_SET(lo, 0) == oddparity32((lo >> 2) & 0xDB6DB6DB)) &&
+                      (IS_SET(lo, 34) == oddparity32(((lo >> 32) & 0x3) ^ (lo & 0xFFFFFFFF)));
     d->card_number = (lo >> 1) & 0xfffff;
     d->facility_code = (lo >> 21) & 0xfff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_c15001(wiegand_card_t *card) {
@@ -537,16 +501,13 @@ static uint64_t pack_c15001(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_c15001(uint64_t hi, uint64_t lo) {
-    if (!(IS_SET(lo, 35) == evenparity32((lo >> 18) & 0x1ffff) &&
-            IS_SET(lo, 0) == oddparity32((lo >> 1) & 0x1ffff))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_c15001(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    d->parity_valid = (IS_SET(lo, 35) == evenparity32((lo >> 18) & 0x1ffff)) &&
+                      (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0x1ffff));
     d->oem = (lo >> 25) & 0x3ff;
     d->facility_code = (lo >> 17) & 0xff;
     d->card_number = (lo >> 1) & 0xffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_actprox(wiegand_card_t *card) {
@@ -568,16 +529,13 @@ static uint64_t pack_actprox(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_actprox(uint64_t hi, uint64_t lo) {
-    if (!(IS_SET(lo, 35) == evenparity32((lo >> 18) & 0x1ffff) &&
-            IS_SET(lo, 0) == oddparity32((lo >> 1) & 0x1ffff))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_actprox(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    d->parity_valid = (IS_SET(lo, 35) == evenparity32((lo >> 18) & 0x1ffff)) &&
+                      (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0x1ffff));
     d->oem = (lo >> 25) & 0x3ff;
     d->facility_code = (lo >> 17) & 0xff;
     d->card_number = (lo >> 1) & 0xffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_s12906(wiegand_card_t *card) {
@@ -596,16 +554,13 @@ static uint64_t pack_s12906(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_s12906(uint64_t hi, uint64_t lo) {
-    if (!(IS_SET(lo, 35) == oddparity32((lo >> 18) & 0x1ffff) &&
-            IS_SET(lo, 0) == oddparity32((lo >> 1) & 0x3ffff))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_s12906(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    d->parity_valid = (IS_SET(lo, 35) == oddparity32((lo >> 18) & 0x1ffff)) &&
+                      (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0x3ffff));
     d->facility_code = (lo >> 27) & 0xff;
     d->issue_level = (lo >> 25) & 0x3;
     d->card_number = (lo >> 1) & 0xffffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_sie36(wiegand_card_t *card) {
@@ -623,15 +578,12 @@ static uint64_t pack_sie36(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_sie36(uint64_t hi, uint64_t lo) {
-    if (!(IS_SET(lo, 35) == oddparity32((lo & 0xB6DB6DB6) ^ ((lo >> 32) & 0x05)) &&
-            IS_SET(lo, 0) == evenparity32((lo & 0xDB6DB6DA) ^ ((lo >> 32) & 0x06)))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_sie36(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    d->parity_valid = (IS_SET(lo, 35) == oddparity32((lo & 0xB6DB6DB6) ^ ((lo >> 32) & 0x05))) &&
+                      (IS_SET(lo, 0) == evenparity32((lo & 0xDB6DB6DA) ^ ((lo >> 32) & 0x06)));
     d->facility_code = (lo >> 17) & 0x3ffff;
     d->card_number = (lo >> 1) & 0xffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_h10320(wiegand_card_t *card) {
@@ -658,17 +610,15 @@ static uint64_t pack_h10320(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_h10320(uint64_t hi, uint64_t lo) {
+static bool unpack_h10320(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
     if (IS_SET(lo, 36) != 1) {
-        return NULL;
+        return false;
     }
 
-    if (!((IS_SET(lo, 3) == evenparity32((lo >> 4) & 0x88888888)) &&
-            (IS_SET(lo, 2) == oddparity32((lo >> 4) & 0x44444444)) &&
-            (IS_SET(lo, 1) == evenparity32((lo >> 4) & 0x22222222)) &&
-            (IS_SET(lo, 0) == evenparity32((lo >> 4) & 0x11111111)))) {
-        return NULL;
-    }
+    bool parity_valid = (IS_SET(lo, 3) == evenparity32((lo >> 4) & 0x88888888)) &&
+                        (IS_SET(lo, 2) == oddparity32((lo >> 4) & 0x44444444)) &&
+                        (IS_SET(lo, 1) == evenparity32((lo >> 4) & 0x22222222)) &&
+                        (IS_SET(lo, 0) == evenparity32((lo >> 4) & 0x11111111));
 
     // This card is BCD-encoded rather than binary. Get the 4-bit groups independently.
     uint64_t n = 1;
@@ -677,14 +627,14 @@ static wiegand_card_t *unpack_h10320(uint64_t hi, uint64_t lo) {
         lo >>= 4;
         uint64_t val = lo & 0xf;
         if (val > 9) {  // violation of BCD; Zero and exit.
-            return NULL;
+            return false;
         }
         cn += val * n;
         n *= 10;
     }
-    wiegand_card_t *d = wiegand_card_alloc();
+    d->parity_valid = parity_valid;
     d->card_number = cn;
-    return d;
+    return true;
 }
 
 static uint64_t pack_h10302(wiegand_card_t *card) {
@@ -701,14 +651,11 @@ static uint64_t pack_h10302(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_h10302(uint64_t hi, uint64_t lo) {
-    if (!(IS_SET(lo, 36) == evenparity32((lo >> 18) & 0x3ffff) &&
-            IS_SET(lo, 0) == oddparity32((lo >> 1) & 0x3ffff))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_h10302(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    d->parity_valid = (IS_SET(lo, 36) == evenparity32((lo >> 18) & 0x3ffff)) &&
+                      (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0x3ffff));
     d->card_number = (lo >> 1) & 0x7ffffffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_h10304(wiegand_card_t *card) {
@@ -726,15 +673,12 @@ static uint64_t pack_h10304(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_h10304(uint64_t hi, uint64_t lo) {
-    if (!(IS_SET(lo, 36) == evenparity32((lo >> 18) & 0x3ffff) &&
-            IS_SET(lo, 0) == oddparity32((lo >> 1) & 0x3ffff))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_h10304(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    d->parity_valid = (IS_SET(lo, 36) == evenparity32((lo >> 18) & 0x3ffff)) &&
+                      (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0x3ffff));
     d->facility_code = (lo >> 20) & 0xffff;
     d->card_number = (lo >> 1) & 0x7ffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_p10004(wiegand_card_t *card) {
@@ -747,12 +691,11 @@ static uint64_t pack_p10004(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_p10004(uint64_t hi, uint64_t lo) {
+static bool unpack_p10004(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
     // unknown parity scheme
-    wiegand_card_t *d = wiegand_card_alloc();
     d->facility_code = (lo >> 23) & 0x1fff;
     d->card_number = (lo >> 5) & 0x3ffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_hgeneric37(wiegand_card_t *card) {
@@ -775,18 +718,15 @@ static uint64_t pack_hgeneric37(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_hgeneric37(uint64_t hi, uint64_t lo) {
+static bool unpack_hgeneric37(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
     if (!IS_SET(lo, 0)) {  // Always 1 in this format
-        return NULL;
+        return false;
     }
-    if (!(IS_SET(lo, 36) == evenparity32((lo >> 4) & 0x11111111) &&
-            IS_SET(lo, 34) == oddparity32(lo & 0x44444444) &&
-            IS_SET(lo, 33) == evenparity32(lo & 0x22222222))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+    d->parity_valid = (IS_SET(lo, 36) == evenparity32((lo >> 4) & 0x11111111)) &&
+                      (IS_SET(lo, 34) == oddparity32(lo & 0x44444444)) &&
+                      (IS_SET(lo, 33) == evenparity32(lo & 0x22222222));
     d->card_number = (lo >> 1) & 0xffffffff;
-    return d;
+    return true;
 }
 
 static uint64_t pack_mdi37(wiegand_card_t *card) {
@@ -804,15 +744,12 @@ static uint64_t pack_mdi37(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_mdi37(uint64_t hi, uint64_t lo) {
-    if (!(IS_SET(lo, 36) == evenparity32((lo >> 18) & 0x3ffff) &&
-            IS_SET(lo, 0) == oddparity32((lo >> 1) & 0x3ffff))) {
-        return NULL;
-    }
-    wiegand_card_t *d = wiegand_card_alloc();
+static bool unpack_mdi37(uint64_t hi, uint64_t lo, wiegand_card_t *d) {
+    d->parity_valid = (IS_SET(lo, 36) == evenparity32((lo >> 18) & 0x3ffff)) &&
+                      (IS_SET(lo, 0) == oddparity32((lo >> 1) & 0x3ffff));
     d->facility_code = (lo >> 30) & 0xf;
     d->card_number = (lo >> 1) & 0x1fffffff;
-    return d;
+    return true;
 }
 
 // ref:
@@ -867,7 +804,10 @@ uint64_t pack(wiegand_card_t *card) {
     return 0;
 }
 
-wiegand_card_t *unpack(uint8_t format_hint, uint8_t length, uint64_t hi, uint64_t lo) {
+size_t unpack_all(uint8_t format_hint, uint8_t length, uint64_t hi, uint64_t lo,
+                  wiegand_candidate_t *candidates, size_t capacity) {
+    size_t count = 0;
+
     for (int i = 0; i < ARRAY_SIZE(formats); i++) {
         if (format_hint != 0 && format_hint != formats[i].format) {
             continue;
@@ -878,12 +818,49 @@ wiegand_card_t *unpack(uint8_t format_hint, uint8_t length, uint64_t hi, uint64_
         if (formats[i].unpack == NULL) {
             continue;
         }
-        wiegand_card_t *card = formats[i].unpack(hi, lo);
-        if (card == NULL) {
+        wiegand_card_t card = {0};
+        if (!formats[i].unpack(hi, lo, &card)) {
             continue;
         }
-        card->format = formats[i].format;
+        card.format = formats[i].format;
+
+        if (count < capacity && candidates != NULL) {
+            candidates[count].card = card;
+            candidates[count].flags = 0;
+            if (formats[i].fields.has_parity) {
+                candidates[count].flags |= WIEGAND_CANDIDATE_HAS_PARITY;
+                if (card.parity_valid) {
+                    candidates[count].flags |= WIEGAND_CANDIDATE_PARITY_VALID;
+                }
+            }
+        }
+        count++;
+    }
+    return count;
+}
+
+wiegand_card_t *unpack(uint8_t format_hint, uint8_t length, uint64_t hi, uint64_t lo) {
+    wiegand_candidate_t candidates[WIEGAND_MAX_CANDIDATES] = {0};
+    size_t count = unpack_all(format_hint, length, hi, lo, candidates, ARRAY_SIZE(candidates));
+    size_t available = MIN(count, ARRAY_SIZE(candidates));
+
+    for (size_t i = 0; i < available; i++) {
+        bool has_parity = candidates[i].flags & WIEGAND_CANDIDATE_HAS_PARITY;
+        bool parity_valid = candidates[i].flags & WIEGAND_CANDIDATE_PARITY_VALID;
+        if (!has_parity || parity_valid) {
+            wiegand_card_t *card = wiegand_card_alloc();
+            *card = candidates[i].card;
+            return card;
+        }
+    }
+    // With no parity-valid interpretation, the single-result API cannot
+    // disambiguate same-length formats. Return its first structural match;
+    // callers that need parity and ambiguity details must use unpack_all().
+    if (available > 0) {
+        wiegand_card_t *card = wiegand_card_alloc();
+        *card = candidates[0].card;
         return card;
     }
+
     return NULL;
 }

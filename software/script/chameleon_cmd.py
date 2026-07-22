@@ -643,6 +643,34 @@ class ChameleonCMD:
         return resp
 
     @expect_response(Status.LF_TAG_OK)
+    def hidprox_scan_all(self, format: int):
+        """Read every structurally compatible HID Prox interpretation."""
+        resp = self.device.send_cmd_sync(Command.HIDPROX_SCAN_ALL, struct.pack('!B', format))
+        if resp.status == Status.LF_TAG_OK:
+            if len(resp.data) < 3:
+                raise ValueError("Invalid HID Prox candidate response")
+
+            version, count, total = struct.unpack('>BBB', resp.data[:3])
+            if version != 1 or len(resp.data) != 3 + count * 14:
+                raise ValueError("Unsupported HID Prox candidate response")
+
+            candidates = []
+            for offset in range(3, len(resp.data), 14):
+                format_id, flags, fc, cn1, cn2, il, oem = struct.unpack(
+                    '>BBIBIBH', resp.data[offset:offset + 14]
+                )
+                candidates.append({
+                    'format': format_id,
+                    'flags': flags,
+                    'fc': fc,
+                    'cn': (cn1 << 32) | cn2,
+                    'il': il,
+                    'oem': oem,
+                })
+            resp.parsed = candidates, total
+        return resp
+
+    @expect_response(Status.LF_TAG_OK)
     def hidprox_write_to_t55xx(self, id_bytes: bytes):
         """
         Write HID Prox card number into T55XX.

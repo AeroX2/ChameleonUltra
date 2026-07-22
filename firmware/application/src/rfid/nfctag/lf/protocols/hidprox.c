@@ -44,6 +44,7 @@ void hidprox_decoder_start(hidprox_codec *d, uint8_t format_hint) {
     memset(d->data, 0, HIDPROX_DATA_SIZE);
     decoder_reset(d);
     d->format_hint = format_hint;
+    d->return_all_candidates = false;
 }
 
 hidprox_codec *hidprox_codec_alloc(void) {
@@ -78,6 +79,10 @@ static uint8_t hidprox_codec_get_length(hidprox_codec *d) {
         length++;
     }
     return length;
+}
+
+size_t hidprox_get_candidates(hidprox_codec *d, wiegand_candidate_t *candidates, size_t capacity) {
+    return unpack_all(d->format_hint, hidprox_codec_get_length(d), 0, d->raw, candidates, capacity);
 }
 
 uint8_t *hidprox_get_data(hidprox_codec *d) {
@@ -132,7 +137,12 @@ bool hidprox_decode_feed(hidprox_codec *d, bool bit) {
 
         uint8_t length = hidprox_codec_get_length(d);
         wiegand_card_t *card = unpack(d->format_hint, length, 0, d->raw);
-        if (card == NULL) {
+        if (card == NULL && !d->return_all_candidates) {
+            decoder_reset(d);
+            return false;
+        }
+        if (d->return_all_candidates &&
+                unpack_all(d->format_hint, length, 0, d->raw, NULL, 0) == 0) {
             decoder_reset(d);
             return false;
         }

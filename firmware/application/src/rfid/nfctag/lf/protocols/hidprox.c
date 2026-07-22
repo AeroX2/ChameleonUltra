@@ -44,6 +44,7 @@ void hidprox_decoder_start(hidprox_codec *d, uint8_t format_hint) {
     memset(d->data, 0, HIDPROX_DATA_SIZE);
     decoder_reset(d);
     d->format_hint = format_hint;
+    d->return_all_candidates = false;
 }
 
 hidprox_codec *hidprox_codec_alloc(void) {
@@ -73,10 +74,8 @@ void hidprox_codec_free(hidprox_codec *d) {
 
 // ref: https://github.com/RfidResearchGroup/proxmark3/blob/810eaeac250f35eca8819aa9c23cb57c5276b3e6/client/src/wiegand_formatutils.c#L131
 static uint8_t hidprox_codec_get_length(hidprox_codec *d) {
-    // Standard 26..36-bit HID credentials set transport-header bit 37 and
-    // encode their payload length in bits 26..36. A 37-bit credential omits
-    // that header, so bit 37 being clear is the 37-bit case.
-    if (((d->raw >> 37) & 0x01) == 0) {
+    //! TODO direct XOR check
+    if (!(d->raw >> 37) && 0x01) {
         return 37;
     }
     uint16_t bits = (d->raw >> 26) & 0x7ff;
@@ -86,6 +85,10 @@ static uint8_t hidprox_codec_get_length(hidprox_codec *d) {
         length++;
     }
     return length;
+}
+
+size_t hidprox_get_candidates(hidprox_codec *d, wiegand_candidate_t *candidates, size_t capacity) {
+    return unpack_all(d->format_hint, hidprox_codec_get_length(d), 0, d->raw, candidates, capacity);
 }
 
 uint8_t *hidprox_get_data(hidprox_codec *d) {
@@ -140,7 +143,12 @@ bool hidprox_decode_feed(hidprox_codec *d, bool bit) {
 
         uint8_t length = hidprox_codec_get_length(d);
         wiegand_card_t *card = unpack(d->format_hint, length, 0, d->raw);
-        if (card == NULL) {
+        if (card == NULL && !d->return_all_candidates) {
+            decoder_reset(d);
+            return false;
+        }
+        if (d->return_all_candidates &&
+                unpack_all(d->format_hint, length, 0, d->raw, NULL, 0) == 0) {
             decoder_reset(d);
             return false;
         }

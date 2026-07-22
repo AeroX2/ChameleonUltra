@@ -53,6 +53,7 @@ from chameleon_enum import (
 )
 from chameleon_enum import HIDFormat
 from crypto1 import Crypto1
+from lf_clone_utils import LFCloneVerificationError, write_and_verify
 
 # NXP IDs based on https://www.nxp.com/docs/en/application-note/AN10833.pdf
 type_id_SAK_dict = {
@@ -5844,12 +5845,37 @@ class LFHIDProxRead(LFHIDIdReadArgsUnit, ReaderRequiredUnit):
     def args_parser(self) -> ArgumentParserNoExit:
         parser = ArgumentParserNoExit()
         parser.description = "Scan hid prox tag and print card format, facility code, card number, issue level and OEM code"
-        return self.add_card_arg(parser, required=True)
+        parser = self.add_card_arg(parser, required=True)
+        parser.add_argument(
+            "-a",
+            "--all",
+            action="store_true",
+            help="Show every compatible format and its parity status",
+        )
+        return parser
 
     def on_exec(self, args: argparse.Namespace):
         format = 0
         if args.format is not None:
             format = HIDFormat[args.format].value
+        if args.all:
+            candidates, total = self.cmd.hidprox_scan_all(format)
+            for index, candidate in enumerate(candidates, start=1):
+                print(f"HIDProx/{HIDFormat(candidate['format'])} [{index}/{total}]")
+                if candidate['flags'] & 0x01:
+                    parity = "ok" if candidate['flags'] & 0x02 else "fail"
+                    print(f" Parity: {parity}")
+                if candidate['fc'] > 0:
+                    print(f" FC: {color_string((CG, candidate['fc']))}")
+                if candidate['il'] > 0:
+                    print(f" IL: {color_string((CG, candidate['il']))}")
+                if candidate['oem'] > 0:
+                    print(f" OEM: {color_string((CG, candidate['oem']))}")
+                print(f" CN: {color_string((CG, candidate['cn']))}")
+            if total > len(candidates):
+                print(f" - {total - len(candidates)} additional candidates were truncated")
+            return
+
         (format, fc, cn1, cn2, il, oem) = self.cmd.hidprox_scan(format)
         cn = (cn1 << 32) + cn2
         print(f"HIDProx/{HIDFormat(format)}")
@@ -6330,6 +6356,9 @@ class LFT55xxClone(ReaderRequiredUnit):
     """
     Clone a scanned or manually-specified LF card ID onto a blank T55xx tag.
 
+    Supported protocols are read back and compared after writing. Use
+    --no-verify only when an unverified write is explicitly required.
+
     Supported types and their required arguments:
 
       em410x   --id <10 hex>         e.g. --id DEADBEEF88
@@ -6345,6 +6374,32 @@ class LFT55xxClone(ReaderRequiredUnit):
     """
 
     TYPES = ["em410x", "electra", "hid", "ioprox", "pac", "viking", "idteck"]
+    VERIFY_ATTEMPTS = 3
+
+    def write_verified(self, label, write, read, matches, no_verify=False):
+        if no_verify:
+            write()
+            print(f" - {label} write attempted without verification")
+            return
+
+        try:
+            attempt, _ = write_and_verify(
+                write,
+                read,
+                matches,
+                attempts=self.VERIFY_ATTEMPTS,
+                retry_exceptions=(UnexpectedResponseError,),
+            )
+        except LFCloneVerificationError as error:
+            if error.last_error is not None:
+                detail = "tag could not be read back"
+            else:
+                detail = f"read-back did not match ({error.last_observed!r})"
+            raise ArgsParserError(
+                f"{label} clone verification failed after {error.attempts} attempts: {detail}"
+            )
+
+        print(f" - {label} clone verified (attempt {attempt}/{self.VERIFY_ATTEMPTS})")
 
     def args_parser(self) -> ArgumentParserNoExit:
         parser = ArgumentParserNoExit()
@@ -6421,6 +6476,11 @@ class LFT55xxClone(ReaderRequiredUnit):
             metavar="HEX",
             help="ioProx raw 8 bytes in hex, e.g. 007854E03A5D65AB",
         )
+        parser.add_argument(
+            "--no-verify",
+            action="store_true",
+            help="Attempt the write without reading the credential back (required for IDTECK)",
+        )
         return parser
 
     def on_exec(self, args: argparse.Namespace):
@@ -6439,9 +6499,16 @@ class LFT55xxClone(ReaderRequiredUnit):
                     f"--id must be exactly {expected} hex characters for {t}"
                 )
             id_bytes = bytes.fromhex(args.id)
-            self.cmd.em410x_write_to_t55xx(id_bytes)
             label = "EM410x Electra" if t == "electra" else "EM410x"
-            print(f" - {label} ID cloned to T55xx: {args.id.upper()}")
+            expected_type = TagSpecificType.EM410X_ELECTRA if t == "electra" else TagSpecificType.EM410X_64
+            self.write_verified(
+                label,
+                lambda: self.cmd.em410x_write_to_t55xx(id_bytes),
+                self.cmd.em410x_scan,
+                lambda observed: observed[0] == expected_type and observed[1] == id_bytes,
+                args.no_verify,
+            )
+            print(f"   ID: {args.id.upper()}")
 
         elif t == "hid":
             if args.format is None:
@@ -6463,8 +6530,14 @@ class LFT55xxClone(ReaderRequiredUnit):
                 il,
                 oem,
             )
-            self.cmd.hidprox_write_to_t55xx(id_bytes)
-            print(f" - HID Prox cloned to T55xx")
+            expected = (fmt.value, fc, cn >> 32, cn & 0xFFFFFFFF, il, oem)
+            self.write_verified(
+                "HID Prox",
+                lambda: self.cmd.hidprox_write_to_t55xx(id_bytes),
+                lambda: self.cmd.hidprox_scan(fmt.value),
+                lambda observed: observed == expected,
+                args.no_verify,
+            )
             print(f"   Format : {fmt.name}")
             if fc:
                 print(f"   FC     : {fc}")
@@ -6485,8 +6558,14 @@ class LFT55xxClone(ReaderRequiredUnit):
                 res = self.cmd.ioprox_compose_id(ver, fc, cn)
                 raw8 = res[3]
             payload16 = struct.pack(">BBH8s4x", ver & 0xFF, fc & 0xFF, cn & 0xFFFF, raw8)
-            self.cmd.ioprox_write_to_t55xx(payload16)
-            print(f" - ioProx cloned to T55xx")
+            expected = (ver & 0xFF, fc & 0xFF, cn & 0xFFFF, raw8)
+            self.write_verified(
+                "ioProx",
+                lambda: self.cmd.ioprox_write_to_t55xx(payload16),
+                self.cmd.ioprox_scan,
+                lambda observed: observed[:4] == expected,
+                args.no_verify,
+            )
             print(f"   Ver    : {ver}")
             print(f"   FC     : {fc} [0x{fc:02X}]")
             print(f"   CN     : {cn}")
@@ -6498,8 +6577,14 @@ class LFT55xxClone(ReaderRequiredUnit):
             if len(args.id) != 8:
                 raise ArgsParserError("--id must be exactly 8 ASCII characters for pac")
             id_bytes = args.id.encode("ascii")
-            self.cmd.pac_write_to_t55xx(id_bytes)
-            print(f" - PAC/Stanley ID cloned to T55xx: {args.id}")
+            self.write_verified(
+                "PAC/Stanley",
+                lambda: self.cmd.pac_write_to_t55xx(id_bytes),
+                self.cmd.pac_scan,
+                lambda observed: observed == id_bytes,
+                args.no_verify,
+            )
+            print(f"   ID: {args.id}")
 
         elif t == "viking":
             if args.id is None:
@@ -6507,8 +6592,14 @@ class LFT55xxClone(ReaderRequiredUnit):
             if not re.match(r"^[a-fA-F0-9]{8}$", args.id):
                 raise ArgsParserError("--id must be exactly 8 hex characters for viking")
             id_bytes = bytes.fromhex(args.id)
-            self.cmd.viking_write_to_t55xx(id_bytes)
-            print(f" - Viking ID cloned to T55xx: {args.id.upper()}")
+            self.write_verified(
+                "Viking",
+                lambda: self.cmd.viking_write_to_t55xx(id_bytes),
+                self.cmd.viking_scan,
+                lambda observed: observed == id_bytes,
+                args.no_verify,
+            )
+            print(f"   ID: {args.id.upper()}")
 
         elif t == "idteck":
             if args.id is None:
@@ -6519,9 +6610,19 @@ class LFT55xxClone(ReaderRequiredUnit):
                 id_hex = "4944544B" + args.id  # prepend "IDTK" preamble
             else:
                 raise ArgsParserError("--id must be 8 or 16 hex characters for idteck")
+            if not args.no_verify:
+                raise ArgsParserError(
+                    "IDTECK read-back is not implemented; use --no-verify to attempt an unverified write"
+                )
             id_bytes = bytes.fromhex(id_hex)
-            self.cmd.idteck_write_to_t55xx(id_bytes)
-            print(f" - IDTECK frame cloned to T55xx: {id_hex.upper()}")
+            self.write_verified(
+                "IDTECK",
+                lambda: self.cmd.idteck_write_to_t55xx(id_bytes),
+                None,
+                None,
+                no_verify=True,
+            )
+            print(f"   Frame: {id_hex.upper()}")
 
 
 @lf_generic.command("adcread")
@@ -7707,6 +7808,45 @@ class LFEm4x05Read(ReaderRequiredUnit):
             print(f" UID (64) : {CG}{uid64:016x}{C0}")
         else:
             print(f" UID      : {CG}{uid:08x}{C0}")
+
+
+@lf.command('tune')
+class LFTune(ReaderRequiredUnit):
+    def args_parser(self) -> ArgumentParserNoExit:
+        parser = ArgumentParserNoExit()
+        parser.description = 'Measure and adjust the LF reader carrier (115-135 kHz)'
+        actions = parser.add_mutually_exclusive_group()
+        actions.add_argument('--scan', action='store_true', help='Sweep the antenna envelope')
+        actions.add_argument('-f', '--frequency', type=int, metavar='KHZ', help='Set carrier frequency')
+        parser.add_argument('--save', action='store_true', help='Persist --frequency across reboots')
+        return parser
+
+    def on_exec(self, args: argparse.Namespace):
+        if args.scan:
+            result = self.cmd.lf_tune_sweep()
+            points = result['points']
+            if not points:
+                print(f'{CR}No tuning samples captured{C0}')
+                return
+            best = max(points, key=lambda point: point['mean'])
+            print(' Frequency   mean   min   max   envelope')
+            for point in points:
+                marker = '*' if point is best else ' '
+                bar = '#' * max(1, point['mean'] // 8)
+                print(f"{marker} {point['frequency_khz']:3d} kHz    {point['mean']:3d}   "
+                      f"{point['min']:3d}   {point['max']:3d}   {bar}")
+            print(f" Suggested : {CG}{best['frequency_khz']} kHz{C0} (highest unloaded envelope)")
+            print(' Put the tag in its normal reading position and confirm it reads reliably before saving.')
+            return
+
+        if args.frequency is not None:
+            result = self.cmd.lf_tune_set(args.frequency, args.save)
+            saved = ' (saved)' if args.save else ''
+        else:
+            result = self.cmd.lf_tune_get()
+            saved = ''
+        print(f" LF carrier: {CG}{result['frequency_khz']} kHz{C0}{saved} "
+              f"(actual {result['actual_frequency_hz'] / 1000:.3f} kHz)")
 
 
 @lf.command('sniff')

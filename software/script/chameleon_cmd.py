@@ -7,11 +7,12 @@ from chameleon_utils import expect_response, reconstruct_full_nt, parity_to_str
 from chameleon_enum import Command, SlotNumber, Status, TagSenseType, TagSpecificType
 from chameleon_enum import ButtonPressFunction, ButtonType, MifareClassicDarksideStatus
 from chameleon_enum import MfcKeyType, MfcValueBlockOperator
+from lf_clone_utils import DEFAULT_T55XX_NEW_KEY, DEFAULT_T55XX_OLD_KEYS
 
 CURRENT_VERSION_SETTINGS = 6
 
-new_key = b'\x20\x20\x66\x66'
-old_keys = [b'\x51\x24\x36\x48', b'\x19\x92\x04\x27']
+new_key = DEFAULT_T55XX_NEW_KEY
+old_keys = list(DEFAULT_T55XX_OLD_KEYS)
 
 
 class ChameleonCMD:
@@ -652,6 +653,34 @@ class ChameleonCMD:
         return resp
 
     @expect_response(Status.LF_TAG_OK)
+    def hidprox_scan_all(self, format: int):
+        """Read every structurally compatible HID Prox interpretation."""
+        resp = self.device.send_cmd_sync(Command.HIDPROX_SCAN_ALL, struct.pack('!B', format))
+        if resp.status == Status.LF_TAG_OK:
+            if len(resp.data) < 3:
+                raise ValueError("Invalid HID Prox candidate response")
+
+            version, count, total = struct.unpack('>BBB', resp.data[:3])
+            if version != 1 or len(resp.data) != 3 + count * 14:
+                raise ValueError("Unsupported HID Prox candidate response")
+
+            candidates = []
+            for offset in range(3, len(resp.data), 14):
+                format_id, flags, fc, cn1, cn2, il, oem = struct.unpack(
+                    '>BBIBIBH', resp.data[offset:offset + 14]
+                )
+                candidates.append({
+                    'format': format_id,
+                    'flags': flags,
+                    'fc': fc,
+                    'cn': (cn1 << 32) | cn2,
+                    'il': il,
+                    'oem': oem,
+                })
+            resp.parsed = candidates, total
+        return resp
+
+    @expect_response(Status.LF_TAG_OK)
     def hidprox_write_to_t55xx(self, id_bytes: bytes):
         """
         Write HID Prox card number into T55XX.
@@ -724,6 +753,50 @@ class ChameleonCMD:
         payload = bytes([(timeout_ms >> 8) & 0xFF, timeout_ms & 0xFF])
         timeout_s = (timeout_ms // 1000) + 2
         return self.device.send_cmd_sync(Command.LF_SNIFF, payload, timeout=timeout_s)
+
+    @expect_response(Status.SUCCESS)
+    def lf_tune_get(self):
+        resp = self.device.send_cmd_sync(Command.LF_TUNE, b'\x00')
+        if resp.status == Status.SUCCESS and len(resp.data) == 5:
+            resp.parsed = {
+                'frequency_khz': resp.data[0],
+                'actual_frequency_hz': struct.unpack('!I', resp.data[1:5])[0],
+            }
+        return resp
+
+    @expect_response(Status.SUCCESS)
+    def lf_tune_set(self, frequency_khz: int, persist: bool = False):
+        if not 115 <= frequency_khz <= 135:
+            raise ValueError('LF frequency must be between 115 and 135 kHz')
+        resp = self.device.send_cmd_sync(
+            Command.LF_TUNE, bytes((1, frequency_khz, int(persist))))
+        if resp.status == Status.SUCCESS and len(resp.data) == 5:
+            resp.parsed = {
+                'frequency_khz': resp.data[0],
+                'actual_frequency_hz': struct.unpack('!I', resp.data[1:5])[0],
+            }
+        return resp
+
+    @expect_response(Status.SUCCESS)
+    def lf_tune_sweep(self):
+        resp = self.device.send_cmd_sync(Command.LF_TUNE, b'\x02', timeout=5)
+        if resp.status == Status.SUCCESS and len(resp.data) >= 2:
+            count = resp.data[1]
+            if len(resp.data) != 2 + count * 4:
+                raise ValueError('Malformed LF tune sweep response')
+            resp.parsed = {
+                'original_frequency_khz': resp.data[0],
+                'points': [
+                    {
+                        'frequency_khz': resp.data[2 + i * 4],
+                        'mean': resp.data[3 + i * 4],
+                        'min': resp.data[4 + i * 4],
+                        'max': resp.data[5 + i * 4],
+                    }
+                    for i in range(count)
+                ],
+            }
+        return resp
 
     @expect_response(Status.LF_TAG_OK)
     def em4x05_scan(self, pwd: int = 0):

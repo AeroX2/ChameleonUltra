@@ -17,6 +17,7 @@
 #if defined(PROJECT_CHAMELEON_ULTRA)
 #include "bsp_wdt.h"
 #include "lf_reader_generic.h"
+#include "lf_125khz_radio.h"
 #include "lf_em4x05_data.h"
 #include "rc522.h"
 #include "mf1_crapto1.h"
@@ -788,6 +789,42 @@ static data_frame_tx_t *cmd_processor_hidprox_scan(uint16_t cmd, uint16_t status
     return data_frame_make(cmd, STATUS_LF_TAG_OK, sizeof(card_data), card_data);
 }
 
+#define HIDPROX_SCAN_ALL_VERSION      (1)
+#define HIDPROX_SCAN_ALL_HEADER_SIZE  (3)
+#define HIDPROX_CANDIDATE_RECORD_SIZE (14)
+
+static data_frame_tx_t *cmd_processor_hidprox_scan_all(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
+    wiegand_candidate_t candidates[WIEGAND_MAX_CANDIDATES] = {0};
+    size_t total = 0;
+    uint8_t format_hint = (data != NULL && length > 0) ? data[0] : 0;
+
+    status = scan_hidprox_candidates(candidates, ARRAY_SIZE(candidates), &total, format_hint);
+    if (status != STATUS_LF_TAG_OK) {
+        return data_frame_make(cmd, status, 0, NULL);
+    }
+
+    size_t count = MIN(total, ARRAY_SIZE(candidates));
+    uint8_t response[HIDPROX_SCAN_ALL_HEADER_SIZE +
+                     HIDPROX_CANDIDATE_RECORD_SIZE * WIEGAND_MAX_CANDIDATES] = {0};
+    response[0] = HIDPROX_SCAN_ALL_VERSION;
+    response[1] = count;
+    response[2] = MIN(total, UINT8_MAX);
+
+    for (size_t i = 0; i < count; i++) {
+        uint8_t *record = response + HIDPROX_SCAN_ALL_HEADER_SIZE + i * HIDPROX_CANDIDATE_RECORD_SIZE;
+        record[0] = candidates[i].card.format;
+        record[1] = candidates[i].flags;
+        num_to_bytes(candidates[i].card.facility_code, 4, record + 2);
+        num_to_bytes(candidates[i].card.card_number, 5, record + 6);
+        record[11] = candidates[i].card.issue_level;
+        num_to_bytes(candidates[i].card.oem, 2, record + 12);
+    }
+
+    return data_frame_make(cmd, STATUS_LF_TAG_OK,
+                           HIDPROX_SCAN_ALL_HEADER_SIZE + count * HIDPROX_CANDIDATE_RECORD_SIZE,
+                           response);
+}
+
 static data_frame_tx_t *cmd_processor_ioprox_scan(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
     uint8_t card_data[16] = {0};
     uint8_t hint = (data != NULL) ? data[0] : 0;
@@ -993,6 +1030,68 @@ static data_frame_tx_t *cmd_processor_generic_read(uint16_t cmd, uint16_t status
     }
 
     return frame;
+}
+
+/* LF tune request: action 0=get, 1=set [kHz, persist], 2=sweep. */
+static data_frame_tx_t *cmd_processor_lf_tune(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
+    if (length < 1 || data[0] > 2) {
+        return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+    }
+
+    if (data[0] == 1) {
+        if (length != 3 || !lf_125khz_radio_set_frequency_khz(data[1])) {
+            return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+        }
+        if (data[2]) {
+            settings_set_lf_frequency_khz(data[1]);
+            status = settings_save_config();
+            if (status != STATUS_SUCCESS) {
+                return data_frame_make(cmd, status, 0, NULL);
+            }
+        }
+    }
+
+    if (data[0] != 2) {
+        struct {
+            uint8_t frequency_khz;
+            uint32_t actual_frequency_hz;
+        } PACKED response;
+        response.frequency_khz = lf_125khz_radio_get_frequency_khz();
+        response.actual_frequency_hz = U32HTONL(lf_125khz_radio_get_actual_frequency_hz());
+        return data_frame_make(cmd, STATUS_SUCCESS, sizeof(response), (uint8_t *)&response);
+    }
+
+    uint8_t original_frequency = lf_125khz_radio_get_frequency_khz();
+    static uint8_t response[2 + ((LF_RADIO_FREQUENCY_MAX_KHZ - LF_RADIO_FREQUENCY_MIN_KHZ + 1) * 4)];
+    static uint8_t samples[128];
+    uint8_t count = 0;
+    response[0] = original_frequency;
+
+    for (uint8_t frequency = LF_RADIO_FREQUENCY_MIN_KHZ; frequency <= LF_RADIO_FREQUENCY_MAX_KHZ; frequency++) {
+        size_t sample_count = 0;
+        lf_125khz_radio_set_frequency_khz(frequency);
+        raw_read_to_buffer(samples, sizeof(samples), 10, &sample_count);
+        if (sample_count == 0) {
+            continue;
+        }
+        uint32_t sum = 0;
+        uint8_t min = 0xff;
+        uint8_t max = 0;
+        for (size_t i = 0; i < sample_count; i++) {
+            sum += samples[i];
+            if (samples[i] < min) min = samples[i];
+            if (samples[i] > max) max = samples[i];
+        }
+        size_t offset = 2 + ((size_t)count * 4);
+        response[offset] = frequency;
+        response[offset + 1] = (uint8_t)(sum / sample_count);
+        response[offset + 2] = min;
+        response[offset + 3] = max;
+        count++;
+    }
+    response[1] = count;
+    lf_125khz_radio_set_frequency_khz(original_frequency);
+    return data_frame_make(cmd, STATUS_SUCCESS, (uint16_t)(2 + (count * 4)), response);
 }
 
 #endif
@@ -3086,6 +3185,7 @@ static cmd_data_map_t m_data_cmd_map[] = {
     {    DATA_CMD_EM410X_WRITE_TO_T55XX,        before_reader_run,           cmd_processor_em410x_write_to_t55xx,         NULL                   },
     {    DATA_CMD_EM410X_ELECTRA_WRITE_TO_T55XX, before_reader_run,           cmd_processor_em410x_electra_write_to_t55xx, NULL                   },
     {    DATA_CMD_HIDPROX_SCAN,                 before_reader_run,           cmd_processor_hidprox_scan,                  NULL                   },
+    {    DATA_CMD_HIDPROX_SCAN_ALL,             before_reader_run,           cmd_processor_hidprox_scan_all,              NULL                   },
     {    DATA_CMD_HIDPROX_WRITE_TO_T55XX,       before_reader_run,           cmd_processor_hidprox_write_to_t55xx,        NULL                   },
     {    DATA_CMD_VIKING_SCAN,                  before_reader_run,           cmd_processor_viking_scan,                   NULL                   },
     {    DATA_CMD_VIKING_WRITE_TO_T55XX,        before_reader_run,           cmd_processor_viking_write_to_t55xx,         NULL                   },
@@ -3098,6 +3198,7 @@ static cmd_data_map_t m_data_cmd_map[] = {
     {    DATA_CMD_IDTECK_WRITE_TO_T55XX,        before_reader_run,           cmd_processor_idteck_write_to_t55xx,         NULL                   },
     {    DATA_CMD_LF_T55XX_WRITE,               before_reader_run,           cmd_processor_lf_t55xx_write,                NULL                   },
     {    DATA_CMD_ADC_GENERIC_READ,             before_reader_run,           cmd_processor_generic_read,                  NULL                   },
+    {    DATA_CMD_LF_TUNE,                      before_reader_run,           cmd_processor_lf_tune,                       NULL                   },
 
     {    DATA_CMD_HF14A_SET_FIELD_ON,           before_reader_run,           cmd_processor_hf14a_set_field_on,            NULL                   },
     {    DATA_CMD_HF14A_SET_FIELD_OFF,          before_reader_run,           cmd_processor_hf14a_set_field_off,           NULL                   },

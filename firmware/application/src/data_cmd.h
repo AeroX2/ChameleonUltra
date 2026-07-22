@@ -103,6 +103,7 @@
 #define DATA_CMD_EM410X_WRITE_TO_T55XX          (3001)
 #define DATA_CMD_EM410X_ELECTRA_WRITE_TO_T55XX  (3006)
 #define DATA_CMD_HIDPROX_SCAN                   (3002)
+#define DATA_CMD_HIDPROX_SCAN_ALL               (3021)
 #define DATA_CMD_HIDPROX_WRITE_TO_T55XX         (3003)
 #define DATA_CMD_PAC_SCAN                       (3014)
 #define DATA_CMD_PAC_WRITE_TO_T55XX             (3015)
@@ -209,5 +210,6 @@
 #define DATA_CMD_EM4X05_SCAN                    (3030)
 #define DATA_CMD_EM4X05_READSNIFF               (3032)
 #define DATA_CMD_LF_SNIFF                       (3031)
+#define DATA_CMD_LF_TUNE                        (3033)  /* get/set/sweep LF reader carrier */
 
 #endif

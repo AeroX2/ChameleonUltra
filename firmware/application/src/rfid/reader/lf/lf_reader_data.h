@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "protocols/wiegand.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -21,6 +23,8 @@ void clear_lf_counter_value(void);
 bool em410x_read(uint8_t *data, uint32_t timeout_ms);
 bool ioprox_read(uint8_t *data, uint8_t format_hint, uint32_t timeout_ms);
 bool hidprox_read(uint8_t *data, uint8_t format_hint, uint32_t timeout_ms);
+bool hidprox_read_candidates(wiegand_candidate_t *candidates, size_t capacity, size_t *count,
+                             uint8_t format_hint, uint32_t timeout_ms);
 bool pac_read(uint8_t *data, uint32_t timeout_ms);
 bool viking_read(uint8_t *data, uint32_t timeout_ms);
 bool jablotron_read(uint8_t *data, uint32_t timeout_ms);

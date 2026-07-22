@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "rfid_main.h"
 #include "rgb_marquee.h"
+#include "settings.h"
 
 //The current mode of the device
 device_mode_t rfid_state = DEVICE_MODE_NONE;
@@ -27,6 +28,7 @@ void reader_mode_enter(void) {
         nrf_gpio_pin_clear(HF_ANT_SEL);     // hf ant switch to reader mode
 
         // init reader
+        lf_125khz_radio_set_frequency_khz(settings_get_lf_frequency_khz());
         lf_125khz_radio_init();
         pcd_14a_reader_init();
         pcd_14a_reader_reset();

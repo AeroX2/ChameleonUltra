@@ -11,6 +11,7 @@
 #include "rfid_main.h"
 
 static bool m_reader_inited = false;
+static uint8_t m_frequency_khz = LF_RADIO_FREQUENCY_DEFAULT_KHZ;
 nrfx_pwm_t m_pwm = NRFX_PWM_INSTANCE(0);
 nrfx_timer_t m_pwm_timer_counter = NRFX_TIMER_INSTANCE(2);
 nrf_ppi_channel_t m_pwm_saadc_sample_ppi_channel;
@@ -18,7 +19,7 @@ nrf_ppi_channel_t m_pwm_timer_count_ppi_channel;
 
 // At present, only channel 1 is used, so only one channel can be configured
 static nrf_pwm_values_individual_t m_lf_125khz_pwm_seq_val[] = {
-    {2, 0, 0, 0},
+    {64, 0, 0, 0},
 };
 
 nrf_pwm_sequence_t const m_lf_125khz_pwm_seq_obj = {
@@ -69,14 +70,41 @@ static void pwm_init(void) {
         config.output_pins[i] = NRFX_PWM_PIN_NOT_USED;
     }
     config.irq_priority = APP_IRQ_PRIORITY_LOW;
-    config.base_clock = (nrf_pwm_clk_t)NRF_PWM_CLK_500kHz;
+    uint16_t top = (uint16_t)((16000U + (m_frequency_khz / 2U)) / m_frequency_khz);
+    m_lf_125khz_pwm_seq_val[0].channel_0 = top / 2U;
+    config.base_clock = (nrf_pwm_clk_t)NRF_PWM_CLK_16MHz;
     config.count_mode = (nrf_pwm_mode_t)NRF_PWM_MODE_UP;
-    config.top_value = (uint16_t)4;
+    config.top_value = top;
     config.load_mode = (nrf_pwm_dec_load_t)NRF_PWM_LOAD_INDIVIDUAL;
     config.step_mode = (nrf_pwm_dec_step_t)NRF_PWM_STEP_AUTO;
 
     nrfx_err_t err_code = nrfx_pwm_init(&m_pwm, &config, NULL);
     APP_ERROR_CHECK(err_code);
+}
+
+bool lf_125khz_radio_set_frequency_khz(uint8_t frequency_khz) {
+    if (frequency_khz < LF_RADIO_FREQUENCY_MIN_KHZ || frequency_khz > LF_RADIO_FREQUENCY_MAX_KHZ) {
+        return false;
+    }
+    if (frequency_khz == m_frequency_khz) {
+        return true;
+    }
+    m_frequency_khz = frequency_khz;
+    if (m_reader_inited) {
+        stop_lf_125khz_radio();
+        nrfx_pwm_uninit(&m_pwm);
+        pwm_init();
+    }
+    return true;
+}
+
+uint8_t lf_125khz_radio_get_frequency_khz(void) {
+    return m_frequency_khz;
+}
+
+uint32_t lf_125khz_radio_get_actual_frequency_hz(void) {
+    uint16_t top = (uint16_t)((16000U + (m_frequency_khz / 2U)) / m_frequency_khz);
+    return 16000000UL / top;
 }
 
 static void pwm_timer_counter_init(void) {

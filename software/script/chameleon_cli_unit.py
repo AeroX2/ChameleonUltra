@@ -7646,6 +7646,45 @@ class LFEm4x05Read(ReaderRequiredUnit):
             print(f" UID      : {CG}{uid:08x}{C0}")
 
 
+@lf.command('tune')
+class LFTune(ReaderRequiredUnit):
+    def args_parser(self) -> ArgumentParserNoExit:
+        parser = ArgumentParserNoExit()
+        parser.description = 'Measure and adjust the LF reader carrier (115-135 kHz)'
+        actions = parser.add_mutually_exclusive_group()
+        actions.add_argument('--scan', action='store_true', help='Sweep the antenna envelope')
+        actions.add_argument('-f', '--frequency', type=int, metavar='KHZ', help='Set carrier frequency')
+        parser.add_argument('--save', action='store_true', help='Persist --frequency across reboots')
+        return parser
+
+    def on_exec(self, args: argparse.Namespace):
+        if args.scan:
+            result = self.cmd.lf_tune_sweep()
+            points = result['points']
+            if not points:
+                print(f'{CR}No tuning samples captured{C0}')
+                return
+            best = max(points, key=lambda point: point['mean'])
+            print(' Frequency   mean   min   max   envelope')
+            for point in points:
+                marker = '*' if point is best else ' '
+                bar = '#' * max(1, point['mean'] // 8)
+                print(f"{marker} {point['frequency_khz']:3d} kHz    {point['mean']:3d}   "
+                      f"{point['min']:3d}   {point['max']:3d}   {bar}")
+            print(f" Suggested : {CG}{best['frequency_khz']} kHz{C0} (highest unloaded envelope)")
+            print(' Put the tag in its normal reading position and confirm it reads reliably before saving.')
+            return
+
+        if args.frequency is not None:
+            result = self.cmd.lf_tune_set(args.frequency, args.save)
+            saved = ' (saved)' if args.save else ''
+        else:
+            result = self.cmd.lf_tune_get()
+            saved = ''
+        print(f" LF carrier: {CG}{result['frequency_khz']} kHz{C0}{saved} "
+              f"(actual {result['actual_frequency_hz'] / 1000:.3f} kHz)")
+
+
 @lf.command('sniff')
 class LFSniff(ReaderRequiredUnit):
     def args_parser(self) -> ArgumentParserNoExit:

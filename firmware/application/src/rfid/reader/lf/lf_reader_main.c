@@ -130,6 +130,8 @@ static void try_reset_t55xx_passwd(uint32_t new_passwd, uint8_t *old_passwds, ui
  */
 static uint8_t write_t55xx(uint32_t *blks, uint8_t blk_count, uint8_t *new_passwd, uint8_t *old_passwds, uint8_t old_passwd_count) {
     uint32_t passwd = bytes_to_num(new_passwd, 4);
+    uint8_t read_frequency = lf_125khz_radio_get_frequency_khz();
+    lf_125khz_radio_set_frequency_khz(LF_RADIO_FREQUENCY_DEFAULT_KHZ);
 
     start_lf_125khz_radio();
     bsp_delay_ms(1);  // Delays for a while after starting the field
@@ -138,6 +140,7 @@ static uint8_t write_t55xx(uint32_t *blks, uint8_t blk_count, uint8_t *new_passw
     t55xx_write_data(passwd, blks, blk_count);
 
     stop_lf_125khz_radio();
+    lf_125khz_radio_set_frequency_khz(read_frequency);
 
     // writing results should be verified by upper computer
     return STATUS_LF_TAG_OK;
@@ -266,6 +269,8 @@ uint8_t lf_t55xx_write_block(uint8_t block, uint32_t word, uint32_t passwd, bool
     uint8_t opcode = page1 ? T5577_OPCODE_PAGE1 : T5577_OPCODE_PAGE0;
     uint32_t *pwd_ptr = use_passwd ? &passwd : NULL;
 
+    uint8_t read_frequency = lf_125khz_radio_get_frequency_khz();
+    lf_125khz_radio_set_frequency_khz(LF_RADIO_FREQUENCY_DEFAULT_KHZ);
     start_lf_125khz_radio();
     bsp_delay_ms(1);  // Delay for a while after starting the field
 
@@ -273,6 +278,7 @@ uint8_t lf_t55xx_write_block(uint8_t block, uint32_t word, uint32_t passwd, bool
     t55xx_send_cmd(T5577_OPCODE_RESET, NULL, 0, NULL, 0);
 
     stop_lf_125khz_radio();
+    lf_125khz_radio_set_frequency_khz(read_frequency);
     return STATUS_LF_TAG_OK;
 }
 #endif

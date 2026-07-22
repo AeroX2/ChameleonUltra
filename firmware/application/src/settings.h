@@ -5,7 +5,8 @@
 
 #include "utils.h"
 
-#define SETTINGS_CURRENT_VERSION 6
+#define SETTINGS_CURRENT_VERSION 7
+#define SETTINGS_LF_FREQUENCY_DEFAULT_KHZ 125
 #define SETTINGS_SLEEP_TIMEOUT_DEFAULT_S 8   // default wake timeout in seconds (matches SLEEP_DELAY_MS_BUTTON_WAKEUP)
 #define SETTINGS_SLEEP_TIMEOUT_MIN_S      5
 #define SETTINGS_SLEEP_TIMEOUT_MAX_S      60
@@ -41,7 +42,8 @@ typedef struct ALIGN_U32 {
     // 1 byte
     uint8_t animation_config : 2;
     uint8_t ble_pairing_enable : 1;
-    uint8_t reserved0 : 5; // If you are add switch field, reallocating me.
+    // add on version7: LF carrier kHz - 115 (range 115..135)
+    uint8_t lf_frequency_offset : 5;
 
     // 1 byte
     uint8_t button_a_press : 4;
@@ -84,4 +86,7 @@ bool settings_get_ble_pairing_enable_first_load(void);
 uint32_t settings_get_sleep_timeout(void);
 void settings_set_sleep_timeout(uint8_t seconds);
 void settings_init_sleep_timeout_config(void);
+uint8_t settings_get_lf_frequency_khz(void);
+void settings_set_lf_frequency_khz(uint8_t frequency_khz);
+void settings_init_lf_frequency_config(void);
 #endif

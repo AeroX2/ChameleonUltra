@@ -58,6 +58,11 @@ void settings_init_sleep_timeout_config(void) {
     config.sleep_timeout = SETTINGS_SLEEP_TIMEOUT_DEFAULT_S;
 }
 
+// add on version7
+void settings_init_lf_frequency_config(void) {
+    settings_set_lf_frequency_khz(SETTINGS_LF_FREQUENCY_DEFAULT_KHZ);
+}
+
 void settings_init_config(void) {
     settings_update_version_for_config();
     config.animation_config = SettingsAnimationModeFull; // add on version1
@@ -66,6 +71,7 @@ void settings_init_config(void) {
     settings_init_ble_connect_key_config();
     settings_init_ble_pairing_enable_config();
     settings_init_sleep_timeout_config();
+    settings_init_lf_frequency_config();
 }
 
 void settings_migrate(void) {
@@ -88,6 +94,9 @@ void settings_migrate(void) {
 
         case 5:
             settings_init_sleep_timeout_config();
+
+        case 6:
+            settings_init_lf_frequency_config();
 
             /*
              * Add new migration steps ABOVE THIS COMMENT
@@ -307,4 +316,12 @@ uint32_t settings_get_sleep_timeout(void) {
 
 void settings_set_sleep_timeout(uint8_t seconds) {
     config.sleep_timeout = seconds;
+}
+
+uint8_t settings_get_lf_frequency_khz(void) {
+    return (uint8_t)(115U + config.lf_frequency_offset);
+}
+
+void settings_set_lf_frequency_khz(uint8_t frequency_khz) {
+    config.lf_frequency_offset = (uint8_t)(frequency_khz - 115U);
 }

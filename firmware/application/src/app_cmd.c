@@ -17,6 +17,7 @@
 #if defined(PROJECT_CHAMELEON_ULTRA)
 #include "bsp_wdt.h"
 #include "lf_reader_generic.h"
+#include "lf_125khz_radio.h"
 #include "lf_em4x05_data.h"
 #include "rc522.h"
 #include "mf1_crapto1.h"
@@ -947,6 +948,68 @@ static data_frame_tx_t *cmd_processor_generic_read(uint16_t cmd, uint16_t status
     }
 
     return frame;
+}
+
+/* LF tune request: action 0=get, 1=set [kHz, persist], 2=sweep. */
+static data_frame_tx_t *cmd_processor_lf_tune(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
+    if (length < 1 || data[0] > 2) {
+        return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+    }
+
+    if (data[0] == 1) {
+        if (length != 3 || !lf_125khz_radio_set_frequency_khz(data[1])) {
+            return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+        }
+        if (data[2]) {
+            settings_set_lf_frequency_khz(data[1]);
+            status = settings_save_config();
+            if (status != STATUS_SUCCESS) {
+                return data_frame_make(cmd, status, 0, NULL);
+            }
+        }
+    }
+
+    if (data[0] != 2) {
+        struct {
+            uint8_t frequency_khz;
+            uint32_t actual_frequency_hz;
+        } PACKED response;
+        response.frequency_khz = lf_125khz_radio_get_frequency_khz();
+        response.actual_frequency_hz = U32HTONL(lf_125khz_radio_get_actual_frequency_hz());
+        return data_frame_make(cmd, STATUS_SUCCESS, sizeof(response), (uint8_t *)&response);
+    }
+
+    uint8_t original_frequency = lf_125khz_radio_get_frequency_khz();
+    static uint8_t response[2 + ((LF_RADIO_FREQUENCY_MAX_KHZ - LF_RADIO_FREQUENCY_MIN_KHZ + 1) * 4)];
+    static uint8_t samples[128];
+    uint8_t count = 0;
+    response[0] = original_frequency;
+
+    for (uint8_t frequency = LF_RADIO_FREQUENCY_MIN_KHZ; frequency <= LF_RADIO_FREQUENCY_MAX_KHZ; frequency++) {
+        size_t sample_count = 0;
+        lf_125khz_radio_set_frequency_khz(frequency);
+        raw_read_to_buffer(samples, sizeof(samples), 10, &sample_count);
+        if (sample_count == 0) {
+            continue;
+        }
+        uint32_t sum = 0;
+        uint8_t min = 0xff;
+        uint8_t max = 0;
+        for (size_t i = 0; i < sample_count; i++) {
+            sum += samples[i];
+            if (samples[i] < min) min = samples[i];
+            if (samples[i] > max) max = samples[i];
+        }
+        size_t offset = 2 + ((size_t)count * 4);
+        response[offset] = frequency;
+        response[offset + 1] = (uint8_t)(sum / sample_count);
+        response[offset + 2] = min;
+        response[offset + 3] = max;
+        count++;
+    }
+    response[1] = count;
+    lf_125khz_radio_set_frequency_khz(original_frequency);
+    return data_frame_make(cmd, STATUS_SUCCESS, (uint16_t)(2 + (count * 4)), response);
 }
 
 #endif
@@ -3048,6 +3111,7 @@ static cmd_data_map_t m_data_cmd_map[] = {
     {    DATA_CMD_IDTECK_WRITE_TO_T55XX,        before_reader_run,           cmd_processor_idteck_write_to_t55xx,         NULL                   },
     {    DATA_CMD_LF_T55XX_WRITE,               before_reader_run,           cmd_processor_lf_t55xx_write,                NULL                   },
     {    DATA_CMD_ADC_GENERIC_READ,             before_reader_run,           cmd_processor_generic_read,                  NULL                   },
+    {    DATA_CMD_LF_TUNE,                      before_reader_run,           cmd_processor_lf_tune,                       NULL                   },
 
     {    DATA_CMD_HF14A_SET_FIELD_ON,           before_reader_run,           cmd_processor_hf14a_set_field_on,            NULL                   },
     {    DATA_CMD_HF14A_SET_FIELD_OFF,          before_reader_run,           cmd_processor_hf14a_set_field_off,           NULL                   },

@@ -7,11 +7,12 @@ from chameleon_utils import expect_response, reconstruct_full_nt, parity_to_str
 from chameleon_enum import Command, SlotNumber, Status, TagSenseType, TagSpecificType
 from chameleon_enum import ButtonPressFunction, ButtonType, MifareClassicDarksideStatus
 from chameleon_enum import MfcKeyType, MfcValueBlockOperator
+from lf_clone_utils import DEFAULT_T55XX_NEW_KEY, DEFAULT_T55XX_OLD_KEYS
 
 CURRENT_VERSION_SETTINGS = 6
 
-new_key = b'\x20\x20\x66\x66'
-old_keys = [b'\x51\x24\x36\x48', b'\x19\x92\x04\x27']
+new_key = DEFAULT_T55XX_NEW_KEY
+old_keys = list(DEFAULT_T55XX_OLD_KEYS)
 
 
 class ChameleonCMD:

@@ -885,5 +885,14 @@ wiegand_card_t *unpack(uint8_t format_hint, uint8_t length, uint64_t hi, uint64_
         card->format = formats[i].format;
         return card;
     }
+    // Preserve an H10301 candidate for a valid 26-bit frame with bad parity
+    // only after all strict formats (including Indala-26) have been tested.
+    if (length == 26 && (format_hint == 0 || format_hint == H10301)) {
+        wiegand_card_t *card = wiegand_card_alloc();
+        card->facility_code = (lo >> 17) & 0xff;
+        card->card_number = (lo >> 1) & 0xffff;
+        card->format = H10301;
+        return card;
+    }
     return NULL;
 }

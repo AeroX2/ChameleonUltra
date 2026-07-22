@@ -3,7 +3,6 @@ All notable changes to this project will be documented in this file.
 This project uses the changelog in accordance with [keepchangelog](http://keepachangelog.com/). Please use this to write notable changes, which is not the same as git commit log...
 
 ## [unreleased][unreleased]
- - Fixed HID Prox decoding for 26-bit H10301 credentials with invalid parity, while retaining strict parity preference during automatic format detection.
  - When the BLE radio is switched off (A+B chord), the SoftDevice/BLE stack is now skipped at boot instead of just suppressing advertising, saving the stack init time and idle power; it is brought up on demand when BLE is re-enabled or before flash save. Battery monitoring was decoupled from the BLE init so it keeps working with the radio off.
 
 ## [v2.2.0][2026-07-04]

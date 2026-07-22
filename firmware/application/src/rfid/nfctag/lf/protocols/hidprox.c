@@ -73,10 +73,8 @@ void hidprox_codec_free(hidprox_codec *d) {
 
 // ref: https://github.com/RfidResearchGroup/proxmark3/blob/810eaeac250f35eca8819aa9c23cb57c5276b3e6/client/src/wiegand_formatutils.c#L131
 static uint8_t hidprox_codec_get_length(hidprox_codec *d) {
-    // Standard 26..36-bit HID credentials set transport-header bit 37 and
-    // encode their payload length in bits 26..36. A 37-bit credential omits
-    // that header, so bit 37 being clear is the 37-bit case.
-    if (((d->raw >> 37) & 0x01) == 0) {
+    //! TODO direct XOR check
+    if (!(d->raw >> 37) && 0x01) {
         return 37;
     }
     uint16_t bits = (d->raw >> 26) & 0x7ff;

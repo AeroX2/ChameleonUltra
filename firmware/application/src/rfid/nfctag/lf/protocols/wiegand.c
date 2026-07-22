@@ -98,19 +98,15 @@ static uint64_t pack_h10301(wiegand_card_t *card) {
     return bits;
 }
 
-static wiegand_card_t *unpack_h10301_fields(uint64_t hi, uint64_t lo) {
-    wiegand_card_t *d = wiegand_card_alloc();
-    d->facility_code = (lo >> 17) & 0xff;
-    d->card_number = (lo >> 1) & 0xffff;
-    return d;
-}
-
 static wiegand_card_t *unpack_h10301(uint64_t hi, uint64_t lo) {
     if (!((IS_SET(lo, 0) == oddparity32((lo >> 1) & 0xfff)) &&
             (IS_SET(lo, 25) == evenparity32((lo >> 13) & 0xfff)))) {
         return NULL;
     }
-    return unpack_h10301_fields(hi, lo);
+    wiegand_card_t *d = wiegand_card_alloc();
+    d->facility_code = (lo >> 17) & 0xff;
+    d->card_number = (lo >> 1) & 0xffff;
+    return d;
 }
 
 static uint64_t pack_ind26(wiegand_card_t *card) {
@@ -137,7 +133,7 @@ static wiegand_card_t *unpack_ind26(uint64_t hi, uint64_t lo) {
     uint8_t odd_parity = lo & 0x01;           // 44
     uint32_t even = (lo >> 13) & 0xfff;       // 19..31
     uint8_t even_parity = (lo >> 25) & 0x01;  // 18
-    if (!((oddparity32(odd) == odd_parity) && (evenparity32(even) == even_parity))) {
+    if (!(oddparity32(odd) == odd_parity) && (evenparity32(even) == even_parity)) {
         return NULL;
     }
     wiegand_card_t *d = wiegand_card_alloc();
@@ -890,13 +886,10 @@ wiegand_card_t *unpack(uint8_t format_hint, uint8_t length, uint64_t hi, uint64_
         return card;
     }
 
-    // Proxmark separates field extraction from parity validity and still
-    // reports an H10301 candidate when a physically valid 26-bit frame has
-    // bad parity. Preserve strict matching above so valid Indala-26 cards are
-    // not shadowed by H10301, then use the same relaxed behaviour only when no
-    // parity-valid 26-bit format matched.
     if (length == 26 && (format_hint == 0 || format_hint == H10301)) {
-        wiegand_card_t *card = unpack_h10301_fields(hi, lo);
+        wiegand_card_t *card = wiegand_card_alloc();
+        card->facility_code = (lo >> 17) & 0xff;
+        card->card_number = (lo >> 1) & 0xffff;
         card->format = H10301;
         return card;
     }

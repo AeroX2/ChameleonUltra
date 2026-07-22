@@ -81,6 +81,11 @@ void settings_init_hf_rx_gain_config(void) {
     settings_set_hf_rx_gain(SETTINGS_HF_RX_GAIN_DEFAULT);
 }
 
+// add on version13
+void settings_init_lf_frequency_config(void) {
+    settings_set_lf_frequency_khz(SETTINGS_LF_FREQUENCY_DEFAULT_KHZ);
+}
+
 void settings_init_config(void) {
     settings_update_version_for_config();
     config.animation_config = SettingsAnimationModeFull; // add on version1
@@ -93,6 +98,7 @@ void settings_init_config(void) {
     settings_init_chord_button_press_config();
     settings_init_ble_radio_enable_config();
     settings_init_hf_rx_gain_config();
+    settings_init_lf_frequency_config();
 }
 
 void settings_migrate(void) {
@@ -153,6 +159,9 @@ void settings_migrate(void) {
             // add on version12: seed the persisted RC522 receiver gain. The v11
             // struct's reserved bits are unspecified, so default it explicitly.
             settings_init_hf_rx_gain_config();
+
+        case 12:
+            settings_init_lf_frequency_config();
 
             /*
              * Add new migration steps ABOVE THIS COMMENT
@@ -455,4 +464,15 @@ uint8_t settings_get_hf_rx_gain(void) {
 
 void settings_set_hf_rx_gain(uint8_t reg_value) {
     config.hf_rx_gain = (reg_value >> 4) & 0x07;
+}
+
+uint8_t settings_get_lf_frequency_khz(void) {
+    uint8_t offset = config.lf_frequency_low | (config.lf_frequency_high << 4);
+    return (uint8_t)(115U + offset);
+}
+
+void settings_set_lf_frequency_khz(uint8_t frequency_khz) {
+    uint8_t offset = (uint8_t)(frequency_khz - 115U);
+    config.lf_frequency_low = offset & 0x0f;
+    config.lf_frequency_high = (offset >> 4) & 0x01;
 }

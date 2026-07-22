@@ -754,6 +754,50 @@ class ChameleonCMD:
         timeout_s = (timeout_ms // 1000) + 2
         return self.device.send_cmd_sync(Command.LF_SNIFF, payload, timeout=timeout_s)
 
+    @expect_response(Status.SUCCESS)
+    def lf_tune_get(self):
+        resp = self.device.send_cmd_sync(Command.LF_TUNE, b'\x00')
+        if resp.status == Status.SUCCESS and len(resp.data) == 5:
+            resp.parsed = {
+                'frequency_khz': resp.data[0],
+                'actual_frequency_hz': struct.unpack('!I', resp.data[1:5])[0],
+            }
+        return resp
+
+    @expect_response(Status.SUCCESS)
+    def lf_tune_set(self, frequency_khz: int, persist: bool = False):
+        if not 115 <= frequency_khz <= 135:
+            raise ValueError('LF frequency must be between 115 and 135 kHz')
+        resp = self.device.send_cmd_sync(
+            Command.LF_TUNE, bytes((1, frequency_khz, int(persist))))
+        if resp.status == Status.SUCCESS and len(resp.data) == 5:
+            resp.parsed = {
+                'frequency_khz': resp.data[0],
+                'actual_frequency_hz': struct.unpack('!I', resp.data[1:5])[0],
+            }
+        return resp
+
+    @expect_response(Status.SUCCESS)
+    def lf_tune_sweep(self):
+        resp = self.device.send_cmd_sync(Command.LF_TUNE, b'\x02', timeout=5)
+        if resp.status == Status.SUCCESS and len(resp.data) >= 2:
+            count = resp.data[1]
+            if len(resp.data) != 2 + count * 4:
+                raise ValueError('Malformed LF tune sweep response')
+            resp.parsed = {
+                'original_frequency_khz': resp.data[0],
+                'points': [
+                    {
+                        'frequency_khz': resp.data[2 + i * 4],
+                        'mean': resp.data[3 + i * 4],
+                        'min': resp.data[4 + i * 4],
+                        'max': resp.data[5 + i * 4],
+                    }
+                    for i in range(count)
+                ],
+            }
+        return resp
+
     @expect_response(Status.LF_TAG_OK)
     def em4x05_scan(self, pwd: int = 0):
         """

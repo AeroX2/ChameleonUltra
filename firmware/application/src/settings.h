@@ -5,8 +5,9 @@
 
 #include "utils.h"
 
-#define SETTINGS_CURRENT_VERSION 12
+#define SETTINGS_CURRENT_VERSION 13
 #define SETTINGS_HF_RX_GAIN_DEFAULT 0x60  // 43 dB; must match RC522_RX_GAIN in rc522.c
+#define SETTINGS_LF_FREQUENCY_DEFAULT_KHZ 125
 #define SETTINGS_SLEEP_TIMEOUT_DEFAULT_S 8   // default wake timeout in seconds (matches SLEEP_DELAY_MS_BUTTON_WAKEUP)
 #define SETTINGS_SLEEP_TIMEOUT_MIN_S      5
 #define SETTINGS_SLEEP_TIMEOUT_MAX_S      60
@@ -47,7 +48,8 @@ typedef struct ALIGN_U32 {
     uint8_t animation_config : 2;
     uint8_t ble_pairing_enable : 1;
     uint8_t ble_radio_enable : 1; // add on version9: master BLE advertising on/off
-    uint8_t reserved0 : 4; // If you are add switch field, reallocating me.
+    // add on version13: low four bits of (LF carrier kHz - 115)
+    uint8_t lf_frequency_low : 4;
 
     // 1 byte
     uint8_t button_a_press : 4;
@@ -72,7 +74,8 @@ typedef struct ALIGN_U32 {
     // add on version12: persisted RC522 receiver gain, stored as the 3-bit
     // RFCfgReg RxGain index (4=33dB, 5=38dB, 6=43dB, 7=48dB).
     uint8_t hf_rx_gain : 3;
-    uint8_t reserved1 : 1;
+    // add on version13: high bit of (LF carrier kHz - 115)
+    uint8_t lf_frequency_high : 1;
 
     /*
      * Warning !!!!!!!!!!!!!!!!!!!!!! <-------------
@@ -113,4 +116,7 @@ void settings_init_sleep_timeout_config(void);
 uint8_t settings_get_hf_rx_gain(void);          // returns RFCfgReg byte (0x40/0x50/0x60/0x70)
 void settings_set_hf_rx_gain(uint8_t reg_value);
 void settings_init_hf_rx_gain_config(void);
+uint8_t settings_get_lf_frequency_khz(void);
+void settings_set_lf_frequency_khz(uint8_t frequency_khz);
+void settings_init_lf_frequency_config(void);
 #endif

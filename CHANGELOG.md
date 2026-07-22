@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 This project uses the changelog in accordance with [keepchangelog](http://keepachangelog.com/). Please use this to write notable changes, which is not the same as git commit log...
 
 ## [unreleased][unreleased]
+ - Changed `lf clone` to verify supported T55xx credentials by reading them back, and added recovery for tags using the `00000000` password.
  - Added bounded multi-format HID Prox decoding and `lf hid prox read --all`, including per-candidate parity status while preserving the existing single-result command.
  - When the BLE radio is switched off (A+B chord), the SoftDevice/BLE stack is now skipped at boot instead of just suppressing advertising, saving the stack init time and idle power; it is brought up on demand when BLE is re-enabled or before flash save. Battery monitoring was decoupled from the BLE init so it keeps working with the radio off.
 

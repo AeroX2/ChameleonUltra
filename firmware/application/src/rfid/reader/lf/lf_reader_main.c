@@ -14,6 +14,7 @@
 #include "protocols/jablotron.h"
 #include "protocols/pac.h"
 #include "protocols/viking.h"
+#include "protocols/pyramid.h"
 
 #define NRF_LOG_MODULE_NAME lf_main
 #include "nrf_log.h"
@@ -27,6 +28,12 @@ static uint32_t g_timeout_readem_ms = 500;
 /**
  * Search EM410X tag
  */
+extern bool indala_read(uint8_t *raw, uint32_t timeout_ms);
+
+uint8_t scan_indala(uint8_t *raw) {
+    return indala_read(raw, g_timeout_readem_ms) ? STATUS_LF_TAG_OK : STATUS_LF_TAG_NO_FOUND;
+}
+
 uint8_t scan_em410x(uint8_t *uid) {
     if (em410x_read(uid, g_timeout_readem_ms)) {
         return STATUS_LF_TAG_OK;
@@ -117,6 +124,16 @@ uint8_t scan_viking(uint8_t *uid) {
  */
 uint8_t scan_jablotron(uint8_t *uid) {
     if (jablotron_read(uid, g_timeout_readem_ms)) {
+        return STATUS_LF_TAG_OK;
+    }
+    return STATUS_LF_TAG_NO_FOUND;
+}
+
+/**
+ * Search Farpointe/Pyramid tag
+ */
+uint8_t scan_pyramid(uint8_t *data) {
+    if (pyramid_read(data, g_timeout_readem_ms)) {
         return STATUS_LF_TAG_OK;
     }
     return STATUS_LF_TAG_NO_FOUND;

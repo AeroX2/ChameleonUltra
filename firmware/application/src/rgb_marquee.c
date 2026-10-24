@@ -773,6 +773,13 @@ void rgb_marquee_boot_clear(void) {
     m_boot_seg_count = 0;
 }
 
+void rgb_marquee_boot_cancel(void) {
+    m_boot_active = false;
+    m_boot_force_frame = false;
+    m_boot_seg_count = 0;
+    m_boot_on_complete = NULL;
+}
+
 void rgb_marquee_boot_push(uint8_t type, uint8_t color, uint8_t p1, uint8_t p2) {
     if (m_boot_seg_count >= BOOT_SEG_MAX) {
         return;

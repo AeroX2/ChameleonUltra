@@ -30,6 +30,7 @@ void rgb_marquee_symmetric_in(uint8_t color, uint8_t slot);
 #define RGB_BOOT_SYMMETRIC_IN   3
 
 void rgb_marquee_boot_clear(void);
+void rgb_marquee_boot_cancel(void);
 void rgb_marquee_boot_push(uint8_t type, uint8_t color, uint8_t p1, uint8_t p2);
 void rgb_marquee_boot_run(uint8_t final_color, void (*on_complete)(void));
 bool rgb_marquee_boot_is_active(void);

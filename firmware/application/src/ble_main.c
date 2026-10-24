@@ -246,51 +246,71 @@ static void nrf_qwr_error_handler(uint32_t nrf_error) {
     APP_ERROR_HANDLER(nrf_error);
 }
 
-__INLINE uint32_t map(uint32_t x, uint32_t in_min, uint32_t in_max, uint32_t out_min, uint32_t out_max) {
-    return (uint32_t)(MIN((x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min, out_max));
+// The battery curve is calibrated against the lowest stable full-charge voltage
+// we have observed after unplugging USB and letting the cell settle. In issue
+// #334 the reported range looks like a typo and the plausible value is
+// 4160-4190 mV, so we use the conservative lower bound to keep 100% reachable.
+#define BATTERY_FULL_CHARGE_REFERENCE_MV  4160U
+#define BATTERY_CURVE_BASE_FULL_MV        4200U
+#define BATTERY_CURVE_SCALE(mv) \
+    ((uint32_t)(((uint32_t)(mv) * BATTERY_FULL_CHARGE_REFERENCE_MV + (BATTERY_CURVE_BASE_FULL_MV / 2U)) / BATTERY_CURVE_BASE_FULL_MV))
+
+static uint32_t map_clamped(uint32_t x, uint32_t in_min, uint32_t in_max, uint32_t out_min, uint32_t out_max) {
+    if (in_max <= in_min) {
+        return out_min;
+    }
+    if (x <= in_min) {
+        return out_min;
+    }
+    if (x >= in_max) {
+        return out_max;
+    }
+
+    return out_min + ((x - in_min) * (out_max - out_min)) / (in_max - in_min);
 }
 
-//Battery voltage to percentage calculation
+// Battery voltage to percentage calculation
 uint32_t BATVOL2PERCENT(uint16_t VOL) {
     // Based on https://github.com/RfidResearchGroup/ChameleonUltra/issues/167#issuecomment-1766908799
+    // and recalibrated from the issue #334 full-charge measurements.
+    const uint32_t p100vol = BATTERY_CURVE_SCALE(4200U);
 
 #if defined(PROJECT_CHAMELEON_ULTRA)
-// Ultra
-#define P100VOL 4200
-#define P80VOL  4034
-#define P60VOL  3904
-#define P40VOL  3824
-#define P20VOL  3754
-#define P5VOL   3644
+    // Ultra
+    const uint32_t p80vol = BATTERY_CURVE_SCALE(4034U);
+    const uint32_t p60vol = BATTERY_CURVE_SCALE(3904U);
+    const uint32_t p40vol = BATTERY_CURVE_SCALE(3824U);
+    const uint32_t p20vol = BATTERY_CURVE_SCALE(3754U);
+    const uint32_t p5vol = BATTERY_CURVE_SCALE(3644U);
 #else
-// Lite
-#define P100VOL 4200
-#define P80VOL  3934
-#define P60VOL  3844
-#define P40VOL  3784
-#define P20VOL  3744
-#define P5VOL   3644
+    // Lite
+    const uint32_t p80vol = BATTERY_CURVE_SCALE(3934U);
+    const uint32_t p60vol = BATTERY_CURVE_SCALE(3844U);
+    const uint32_t p40vol = BATTERY_CURVE_SCALE(3784U);
+    const uint32_t p20vol = BATTERY_CURVE_SCALE(3744U);
+    const uint32_t p5vol = BATTERY_CURVE_SCALE(3644U);
 #endif
 
-    if (VOL > P80VOL) {
-        //80-100
-        return map(VOL, P80VOL, P100VOL, 80, 100);
-    } else if (VOL > P60VOL) {
-        //60-80
-        return map(VOL, P60VOL, P80VOL, 60, 80);
-    } else if (VOL > P40VOL) {
-        //40-60
-        return map(VOL, P40VOL, P60VOL, 40, 60);
-    } else if (VOL > P20VOL) {
-        //20-60
-        return map(VOL, P20VOL, P40VOL, 20, 40);
-    } else if (VOL > P5VOL) {
-        //5-20
-        return map(VOL, P5VOL, P20VOL, 5, 20);
-    } else {
-        //<5
-        return 0;
+    if (VOL >= p100vol) {
+        return 100;
+    } else if (VOL > p80vol) {
+        // 80-100
+        return map_clamped(VOL, p80vol, p100vol, 80, 100);
+    } else if (VOL > p60vol) {
+        // 60-80
+        return map_clamped(VOL, p60vol, p80vol, 60, 80);
+    } else if (VOL > p40vol) {
+        // 40-60
+        return map_clamped(VOL, p40vol, p60vol, 40, 60);
+    } else if (VOL > p20vol) {
+        // 20-40
+        return map_clamped(VOL, p20vol, p40vol, 20, 40);
+    } else if (VOL > p5vol) {
+        // 5-20
+        return map_clamped(VOL, p5vol, p20vol, 5, 20);
     }
+
+    return 0;
 }
 
 /**@brief Function for initializing services that will be used by the application.
@@ -829,7 +849,7 @@ void ble_slave_init(void) {
     m_ble_initialized = true;           // Mark the stack as ready.
 }
 
-void register_lf_adc_callback(lf_adc_callback_t cb) {
+static void register_lf_adc_callback_with_acq(lf_adc_callback_t cb, nrf_saadc_acqtime_t acq_time) {
     m_lf_adc_callback = cb;
 
     nrfx_saadc_uninit();
@@ -841,7 +861,7 @@ void register_lf_adc_callback(lf_adc_callback_t cb) {
     APP_ERROR_CHECK(err_code);
 
     nrf_saadc_channel_config_t ch = NRFX_SAADC_DEFAULT_CHANNEL_CONFIG_SE(NRF_SAADC_INPUT_AIN5);
-    ch.acq_time = NRF_SAADC_ACQTIME_5US;
+    ch.acq_time = acq_time;
     err_code = nrfx_saadc_channel_init(ADC_CHANNEL, &ch);
     APP_ERROR_CHECK(err_code);
 
@@ -850,6 +870,15 @@ void register_lf_adc_callback(lf_adc_callback_t cb) {
 
     err_code = nrfx_saadc_buffer_convert(&adc_buf[next_free_buf_index()][0], ADC_BUF_SIZE);
     APP_ERROR_CHECK(err_code);
+}
+
+void register_lf_adc_callback(lf_adc_callback_t cb) {
+    register_lf_adc_callback_with_acq(cb, NRF_SAADC_ACQTIME_5US);
+}
+
+void register_lf_adc_callback_fast(lf_adc_callback_t cb) {
+    // 3 us acquisition + 2 us conversion fits the PSK 6 us sample period.
+    register_lf_adc_callback_with_acq(cb, NRF_SAADC_ACQTIME_3US);
 }
 
 void unregister_lf_adc_callback(void) {

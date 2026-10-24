@@ -39,6 +39,7 @@ class Command(enum.IntEnum):
     DELETE_SLOT_SENSE_TYPE = 1024
 
     GET_BATTERY_INFO = 1025
+    GET_BATTERY_INFO_EX = 1043
 
     GET_BUTTON_PRESS_CONFIG = 1026
     SET_BUTTON_PRESS_CONFIG = 1027
@@ -60,10 +61,12 @@ class Command(enum.IntEnum):
     GET_SLEEP_TIMEOUT = 1039
     SET_SLEEP_TIMEOUT = 1040
 
-    GET_DOUBLE_BUTTON_PRESS_CONFIG = 1041
-    SET_DOUBLE_BUTTON_PRESS_CONFIG = 1042
-    GET_CHORD_BUTTON_PRESS_CONFIG = 1043
-    SET_CHORD_BUTTON_PRESS_CONFIG = 1044
+    GET_DOUBLE_BUTTON_PRESS_CONFIG = 1800
+    SET_DOUBLE_BUTTON_PRESS_CONFIG = 1801
+    GET_CHORD_BUTTON_PRESS_CONFIG = 1802
+    SET_CHORD_BUTTON_PRESS_CONFIG = 1803
+    GET_LONG_PRESS_THRESHOLD = 1041
+    SET_LONG_PRESS_THRESHOLD = 1042
 
     HF14A_SCAN = 2000
     MF1_DETECT_SUPPORT = 2001
@@ -76,10 +79,14 @@ class Command(enum.IntEnum):
     MF1_READ_ONE_BLOCK = 2008
     MF1_WRITE_ONE_BLOCK = 2009
     HF14A_RAW = 2010
+    MF0_ULC_AUTH = 2018
+    MF0_ULC_READ = 2019
+    MF0_ULC_WRITE = 2021
+    MF0_ULC_SET_KEY = 2022
     HF14A_SCAN_KEEP = 2016
     HF14A_AUTH_TRACE = 2017
-    HF14A_SET_RX_GAIN = 2018
-    HF14A_GET_RX_GAIN = 2019
+    HF14A_SET_RX_GAIN = 2800
+    HF14A_GET_RX_GAIN = 2801
     MF1_MANIPULATE_VALUE_BLOCK = 2011
     MF1_CHECK_KEYS_OF_SECTORS = 2012
     MF1_HARDNESTED_ACQUIRE = 2013
@@ -93,7 +100,7 @@ class Command(enum.IntEnum):
     EM410X_WRITE_TO_T55XX = 3001
     EM410X_ELECTRA_WRITE_TO_T55XX = 3006
     HIDPROX_SCAN = 3002
-    HIDPROX_SCAN_ALL = 3021
+    HIDPROX_SCAN_ALL = 3800
     HIDPROX_WRITE_TO_T55XX = 3003
     VIKING_SCAN = 3004
     VIKING_WRITE_TO_T55XX = 3005
@@ -108,6 +115,8 @@ class Command(enum.IntEnum):
     IDTECK_WRITE_TO_T55XX = 3018
     JABLOTRON_SCAN = 3019
     JABLOTRON_WRITE_TO_T55XX = 3020
+    INDALA_SCAN = 3801
+    PYRAMID_SCAN = 3021
 
     MF1_WRITE_EMU_BLOCK_DATA = 4000
     HF14A_SET_ANTI_COLL_DATA = 4001
@@ -157,6 +166,10 @@ class Command(enum.IntEnum):
 
     MF1_GET_PRNG_TYPE = 4040
     MF1_SET_PRNG_TYPE = 4041
+
+    SEOS_READ_EMU_DATA = 4042
+    SEOS_WRITE_EMU_DATA = 4043
+    SEOS_WRITE_EMU_KEYS = 4044
 
     # ISO14443-4 T=CL emulation
     HF14A_4_APDU_RECV = 6000
@@ -327,6 +340,7 @@ class TagSpecificType(enum.IntEnum):
     # FSK Tag-Talk-First      200
     HIDProx = 200
     ioProx = 201
+    Pyramid = 202
     # AWID
     # Paradox
 
@@ -369,6 +383,7 @@ class TagSpecificType(enum.IntEnum):
 
     # ISO14443-4 T=CL emulation
     HF14A_4 = 3000
+    SEOS = 3001
 
     @staticmethod
     def list(exclude_meta=True):
@@ -413,6 +428,8 @@ class TagSpecificType(enum.IntEnum):
             return "HIDProx"
         elif self == TagSpecificType.ioProx:
             return "ioProx"
+        elif self == TagSpecificType.Pyramid:
+            return "Farpointe/Pyramid"
         elif self == TagSpecificType.PAC:
             return "PAC/Stanley"
         elif self == TagSpecificType.Viking:
@@ -447,6 +464,8 @@ class TagSpecificType(enum.IntEnum):
             return "NTAG 210"
         elif self == TagSpecificType.NTAG_212:
             return "NTAG 212"
+        elif self == TagSpecificType.SEOS:
+            return "SEOS"
         elif self < TagSpecificType.OLD_TAG_TYPES_END:
             return "Old tag type, must be migrated! Upgrade fw!"
         return "Invalid"
@@ -633,6 +652,15 @@ class MfcValueBlockOperator(enum.IntEnum):
     DECREMENT = 0xC0
     INCREMENT = 0xC1
     RESTORE = 0xC2
+
+
+@enum.unique
+class BatteryHealth(enum.IntEnum):
+    CRITICAL = 0
+    LOW = 1
+    FAIR = 2
+    GOOD = 3
+    EXCELLENT = 4
 
 
 @enum.unique

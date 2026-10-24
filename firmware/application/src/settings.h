@@ -5,12 +5,14 @@
 
 #include "utils.h"
 
-#define SETTINGS_CURRENT_VERSION 13
+#define SETTINGS_CURRENT_VERSION 14
 #define SETTINGS_HF_RX_GAIN_DEFAULT 0x60  // 43 dB; must match RC522_RX_GAIN in rc522.c
 #define SETTINGS_LF_FREQUENCY_DEFAULT_KHZ 125
 #define SETTINGS_SLEEP_TIMEOUT_DEFAULT_S 8   // default wake timeout in seconds (matches SLEEP_DELAY_MS_BUTTON_WAKEUP)
 #define SETTINGS_SLEEP_TIMEOUT_MIN_S      5
 #define SETTINGS_SLEEP_TIMEOUT_MAX_S      60
+#define SETTINGS_LONG_PRESS_THRESHOLD_DEFAULT_MS 1000
+#define SETTINGS_LONG_PRESS_THRESHOLD_MIN_MS     200
 #define BLE_PAIRING_KEY_LEN 6
 #define DEFAULT_BLE_PAIRING_KEY "123456"  // length must == 6
 
@@ -76,6 +78,8 @@ typedef struct ALIGN_U32 {
     uint8_t hf_rx_gain : 3;
     // add on version13: high bit of (LF carrier kHz - 115)
     uint8_t lf_frequency_high : 1;
+    // 2 bytes (add on version14)
+    uint16_t long_press_threshold; // long button press threshold in ms
 
     /*
      * Warning !!!!!!!!!!!!!!!!!!!!!! <-------------
@@ -119,4 +123,7 @@ void settings_init_hf_rx_gain_config(void);
 uint8_t settings_get_lf_frequency_khz(void);
 void settings_set_lf_frequency_khz(uint8_t frequency_khz);
 void settings_init_lf_frequency_config(void);
+uint16_t settings_get_long_press_threshold(void);
+void settings_set_long_press_threshold(uint16_t duration);
+void settings_init_long_press_threshold_config(void);
 #endif

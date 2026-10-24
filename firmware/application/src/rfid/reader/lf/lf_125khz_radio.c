@@ -161,6 +161,35 @@ void lf_125khz_radio_saadc_disable(void) {
     unregister_lf_adc_callback();
 }
 
+// PSK capture is exclusive with ASK/FSK reads. Reuse the LF counter as a
+// sample clock, restoring its counter mode and PWM sample route afterwards.
+void lf_125khz_radio_psk_adc_enable(lf_adc_callback_t cb) {
+    register_lf_adc_callback_fast(cb);
+    nrfx_timer_disable(&m_pwm_timer_counter);
+    nrf_timer_mode_set(m_pwm_timer_counter.p_reg, NRF_TIMER_MODE_TIMER);
+    nrf_timer_frequency_set(m_pwm_timer_counter.p_reg, NRF_TIMER_FREQ_16MHz);
+    nrfx_timer_clear(&m_pwm_timer_counter);
+    nrfx_timer_extended_compare(&m_pwm_timer_counter, NRF_TIMER_CC_CHANNEL0,
+                               96, NRF_TIMER_SHORT_COMPARE0_CLEAR_MASK, false);
+    APP_ERROR_CHECK(nrfx_ppi_channel_assign(m_pwm_saadc_sample_ppi_channel,
+        nrfx_timer_event_address_get(&m_pwm_timer_counter, NRF_TIMER_EVENT_COMPARE0),
+        nrf_saadc_task_address_get(NRF_SAADC_TASK_SAMPLE)));
+    APP_ERROR_CHECK(nrfx_ppi_channel_enable(m_pwm_saadc_sample_ppi_channel));
+    nrfx_timer_enable(&m_pwm_timer_counter);
+}
+
+void lf_125khz_radio_psk_adc_disable(void) {
+    nrfx_timer_disable(&m_pwm_timer_counter);
+    APP_ERROR_CHECK(nrfx_ppi_channel_disable(m_pwm_saadc_sample_ppi_channel));
+    nrf_timer_shorts_disable(m_pwm_timer_counter.p_reg, NRF_TIMER_SHORT_COMPARE0_CLEAR_MASK);
+    nrf_timer_mode_set(m_pwm_timer_counter.p_reg, NRF_TIMER_MODE_COUNTER);
+    nrfx_timer_clear(&m_pwm_timer_counter);
+    APP_ERROR_CHECK(nrfx_ppi_channel_assign(m_pwm_saadc_sample_ppi_channel,
+        nrfx_pwm_event_address_get(&m_pwm, NRF_PWM_EVENT_PWMPERIODEND),
+        nrf_saadc_task_address_get(NRF_SAADC_TASK_SAMPLE)));
+    unregister_lf_adc_callback();
+}
+
 void lf_125khz_radio_gpiote_enable(void) {
     nrfx_err_t err_code;
     err_code = nrfx_ppi_channel_enable(m_pwm_timer_count_ppi_channel);

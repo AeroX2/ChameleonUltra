@@ -86,6 +86,10 @@ void settings_init_lf_frequency_config(void) {
     settings_set_lf_frequency_khz(SETTINGS_LF_FREQUENCY_DEFAULT_KHZ);
 }
 
+void settings_init_long_press_threshold_config(void) {
+    config.long_press_threshold = SETTINGS_LONG_PRESS_THRESHOLD_DEFAULT_MS;
+}
+
 void settings_init_config(void) {
     settings_update_version_for_config();
     config.animation_config = SettingsAnimationModeFull; // add on version1
@@ -99,6 +103,7 @@ void settings_init_config(void) {
     settings_init_ble_radio_enable_config();
     settings_init_hf_rx_gain_config();
     settings_init_lf_frequency_config();
+    settings_init_long_press_threshold_config();
 }
 
 void settings_migrate(void) {
@@ -162,6 +167,9 @@ void settings_migrate(void) {
 
         case 12:
             settings_init_lf_frequency_config();
+
+        case 13:
+            settings_init_long_press_threshold_config();
 
             /*
              * Add new migration steps ABOVE THIS COMMENT
@@ -475,4 +483,15 @@ void settings_set_lf_frequency_khz(uint8_t frequency_khz) {
     uint8_t offset = (uint8_t)(frequency_khz - 115U);
     config.lf_frequency_low = offset & 0x0f;
     config.lf_frequency_high = (offset >> 4) & 0x01;
+}
+
+uint16_t settings_get_long_press_threshold(void) {
+    return config.long_press_threshold;
+}
+
+void settings_set_long_press_threshold(uint16_t duration) {
+    if (duration < SETTINGS_LONG_PRESS_THRESHOLD_MIN_MS) {
+        duration = SETTINGS_LONG_PRESS_THRESHOLD_MIN_MS;
+    }
+    config.long_press_threshold = duration;
 }

@@ -24,46 +24,31 @@ Read the [available documentation](https://github.com/RfidResearchGroup/Chameleo
 
 # Custom firmware features (this fork)
 
-This fork adds a set of on-device usability and performance improvements on top
-of the upstream firmware. All of the following are merged into `main`.
+This fork includes upstream v2.3.0 plus these changes:
 
-### Buttons & on-device controls
-* **Long-press fires while held** — a long-press action triggers the instant its
-  hold threshold is reached (with LED feedback), instead of waiting for release.
-* **Double-click bindings** — a quick double-tap can be mapped to its own action,
-  doubling the functions reachable from the two buttons.
-* **A+B chord binding** — pressing both buttons together triggers a dedicated
-  action without firing the individual button events.
-* **WRITE button** — write the active slot to a physical card, guarded by an
-  A, B, A+B confirmation sequence to prevent accidental overwrites.
-* **FULLREAD button** — on-device dump of a card using the built-in default-key
-  dictionary, no host/CLI required.
-* **Boot-time slot select** — hold a button during power-on to jump straight to a
-  chosen slot.
+* Long presses fire while held; double-click and A+B chord bindings are configurable.
+* Default double-clicks clone LF EM410x (A) or HF UID (B) into a scratch slot.
+* A+B toggles BLE advertising and disconnects an active link. The setting survives
+  reboot; the SoftDevice is always initialized to avoid BLE-off boot faults.
+* Non-blocking boot/wake LED animation and faster button/slot response.
+* Persistent HF receiver gain (`hf 14a rxgain`) and LF carrier tuning (`lf tune`).
+* LF clone write verification and HID Prox format-candidate enumeration.
+* Experimental **64-bit Indala PSK1 RF/32 reading**: `lf indala read` returns
+  the raw eight-byte frame after two identical consecutive frames are decoded.
+  This is not a facility/card-number interpretation. Indala 224-bit tags,
+  emulation and writing are not implemented by this change.
 
-### Cloning
-* **CLONE wait + scratch slot** — the on-device clone waits ~5 s for the card to
-  be presented and writes the capture into a dedicated scratch slot, so an
-  existing slot is never clobbered.
+Indala has synthetic decoder coverage but has **not been verified on physical
+hardware**. Validate it with a known Indala tag before relying on its output.
+The reader temporarily uses a 125 kHz field and a 166.67 kHz ADC sample clock,
+then restores the configured LF frequency and normal sampling path.
+See [Indala validation notes](docs/indala.md).
 
-### BLE radio
-* **Persisted on/off toggle (A+B chord)** — turn the BLE radio on or off from the
-  device; the choice survives reboots.
-* **LED feedback on toggle** — a blue blink for ON, red for OFF, so the state
-  change is visible.
-* **True disconnect on OFF** — disabling the radio also drops any active
-  connection, not just future advertising.
-* **Skip BLE init at boot when disabled** — when the radio is left off, the BLE
-  stack is not brought up at boot, for a faster and lower-power start.
-
-### Responsiveness & performance
-* **Non-blocking boot/wake LED animation** — the device starts emulating and
-  answering the host almost immediately; the LED sweep now plays in parallel
-  instead of stalling startup.
-* **Snappier slot switching** — the slot-change LED fade no longer blocks the
-  device for ~250 ms per switch.
-* **Lower input latency** — button debounce reduced (50 ms → 25 ms) and the
-  double-click detection window shortened (250 ms → 200 ms).
+Update the firmware and this fork's CLI together. Upstream allocated command IDs
+previously used by the fork, so fork-only button, HF gain and HID candidate
+commands now use separate IDs. Older companion GUI builds need matching command
+updates for these features. Existing fork v13 settings migrate to v14 while
+retaining button bindings, radio state and tuning.
 
 # Compatible applications
 
@@ -72,6 +57,7 @@ of the upstream firmware. All of the following are merged into `main`.
 * [MTools BLE](https://github.com/RfidResearchGroup/ChameleonUltra/wiki/mtoolsble)
 * [Mifare Chameleon Tool (iOS only, Beta)](https://apps.apple.com/it/app/mifare-chameleon-tool/id6761231484)
 * [Chameleon Ultra (Sailfish OS only)](https://sailfishos-chum.github.io/apps/harbour-chameleon-ultra)
+* [Chameleon GO (iOS only)](https://apps.apple.com/us/app/id6802015306)
 
 # Videos
 
@@ -90,5 +76,10 @@ Where do you find the community?
   * Software/chameleon-dev for firmware and clients development discussions
   * Devices/chameleon-ultra for usage discussions
 * [GameTec_live discord server](https://discord.gg/DJ2A4wxncK)
+
+Other notable projects:
+* [Fantasi](https://fantasi.cloud)
+  * [Discord](https://fantasi.cloud/discord)
+* [chameleon-ultra.js](https://github.com/taichunmin/chameleon-ultra.js/)
 
 ###### Searching for the docs repo? Find it [here](https://github.com/RfidResearchGroup/ChameleonUltraDocs)

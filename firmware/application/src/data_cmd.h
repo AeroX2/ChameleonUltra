@@ -48,10 +48,13 @@
 #define DATA_CMD_GET_ALL_SLOT_NICKS             (1038)
 #define DATA_CMD_GET_SLEEP_TIMEOUT              (1039)
 #define DATA_CMD_SET_SLEEP_TIMEOUT              (1040)
-#define DATA_CMD_GET_DOUBLE_BUTTON_PRESS_CONFIG (1041)
-#define DATA_CMD_SET_DOUBLE_BUTTON_PRESS_CONFIG (1042)
-#define DATA_CMD_GET_CHORD_BUTTON_PRESS_CONFIG  (1043)
-#define DATA_CMD_SET_CHORD_BUTTON_PRESS_CONFIG  (1044)
+#define DATA_CMD_GET_DOUBLE_BUTTON_PRESS_CONFIG (1800)
+#define DATA_CMD_SET_DOUBLE_BUTTON_PRESS_CONFIG (1801)
+#define DATA_CMD_GET_CHORD_BUTTON_PRESS_CONFIG  (1802)
+#define DATA_CMD_SET_CHORD_BUTTON_PRESS_CONFIG  (1803)
+#define DATA_CMD_GET_LONG_PRESS_THRESHOLD       (1041)
+#define DATA_CMD_SET_LONG_PRESS_THRESHOLD       (1042)
+#define DATA_CMD_GET_BATTERY_INFO_EX            (1043)
 
 //
 // ******************************************************************
@@ -73,10 +76,14 @@
 #define DATA_CMD_MF1_READ_ONE_BLOCK             (2008)
 #define DATA_CMD_MF1_WRITE_ONE_BLOCK            (2009)
 #define DATA_CMD_HF14A_RAW                      (2010)
+#define DATA_CMD_MF0_ULC_AUTH                   (2018)
+#define DATA_CMD_MF0_ULC_READ                   (2019)
+#define DATA_CMD_MF0_ULC_WRITE                  (2021)
+#define DATA_CMD_MF0_ULC_SET_KEY                (2022)
 #define DATA_CMD_HF14A_SCAN_KEEP                (2016)  /* scan+RATS, keep field alive for APDU exchange */
 #define DATA_CMD_HF14A_AUTH_TRACE               (2017)  /* full anticoll + Crypto1 auth, every frame returned for inspection */
-#define DATA_CMD_HF14A_SET_RX_GAIN              (2018)  /* set RC522 receiver gain (RFCfgReg RxGain) for on-device tuning */
-#define DATA_CMD_HF14A_GET_RX_GAIN              (2019)  /* read back current RC522 receiver gain */
+#define DATA_CMD_HF14A_SET_RX_GAIN              (2800)  /* set RC522 receiver gain (RFCfgReg RxGain) for on-device tuning */
+#define DATA_CMD_HF14A_GET_RX_GAIN              (2801)  /* read back current RC522 receiver gain */
 #define DATA_CMD_MF1_MANIPULATE_VALUE_BLOCK     (2011)
 #define DATA_CMD_MF1_CHECK_KEYS_OF_SECTORS      (2012)
 #define DATA_CMD_MF1_HARDNESTED_ACQUIRE         (2013)
@@ -103,7 +110,7 @@
 #define DATA_CMD_EM410X_WRITE_TO_T55XX          (3001)
 #define DATA_CMD_EM410X_ELECTRA_WRITE_TO_T55XX  (3006)
 #define DATA_CMD_HIDPROX_SCAN                   (3002)
-#define DATA_CMD_HIDPROX_SCAN_ALL               (3021)
+#define DATA_CMD_HIDPROX_SCAN_ALL               (3800)
 #define DATA_CMD_HIDPROX_WRITE_TO_T55XX         (3003)
 #define DATA_CMD_PAC_SCAN                       (3014)
 #define DATA_CMD_PAC_WRITE_TO_T55XX             (3015)
@@ -120,6 +127,8 @@
 #define DATA_CMD_IDTECK_WRITE_TO_T55XX          (3018)
 #define DATA_CMD_JABLOTRON_SCAN                 (3019)
 #define DATA_CMD_JABLOTRON_WRITE_TO_T55XX       (3020)
+#define DATA_CMD_INDALA_SCAN                    (3801)
+#define DATA_CMD_PYRAMID_SCAN                   (3021)
 
 //
 // ******************************************************************
@@ -172,6 +181,9 @@
 #define DATA_CMD_MF1_GET_FIELD_OFF_DO_RESET     (4039)
 #define DATA_CMD_MF1_GET_PRNG_TYPE              (4040)  // 0=static 1=weak(LFSR) 2=hard(rand)
 #define DATA_CMD_MF1_SET_PRNG_TYPE              (4041)
+#define DATA_CMD_SEOS_READ_EMU_DATA             (4042)
+#define DATA_CMD_SEOS_WRITE_EMU_DATA            (4043)
+#define DATA_CMD_SEOS_WRITE_EMU_KEYS            (4044)
 //
 // ******************************************************************
 

@@ -13,6 +13,7 @@
 #include "tag_persistence.h"
 #include "nrf_pwr_mgmt.h"
 #include "settings.h"
+#include "protocols/indala.h"
 #include "delayed_reset.h"
 #include "netdata.h"
 #if defined(PROJECT_CHAMELEON_ULTRA)
@@ -878,10 +879,24 @@ static data_frame_tx_t *cmd_processor_mf1_manipulate_value_block(uint16_t cmd, u
 }
 
 static data_frame_tx_t *cmd_processor_indala_scan(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
-    if (length != 0) return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
-    uint8_t raw[8];
-    status = scan_indala(raw);
-    return data_frame_make(cmd, status, status == STATUS_LF_TAG_OK ? sizeof(raw) : 0, raw);
+    if (length > 1 || (length && data[0] > 2) || (cmd == DATA_CMD_INDALA_SCAN && length)) return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+    uint8_t record[INDALA_RECORD_SIZE] = {0};
+    status = scan_indala(record, cmd == DATA_CMD_INDALA_SCAN ? 1 : (length ? data[0] : 0));
+    if (status != STATUS_LF_TAG_OK) return data_frame_make(cmd, status, 0, NULL);
+    if (cmd == DATA_CMD_INDALA_SCAN) {
+        if (record[1] != 1 || record[3] != 64) return data_frame_make(cmd, STATUS_LF_TAG_NO_FOUND, 0, NULL);
+        return data_frame_make(cmd, status, 8, record + 4);
+    }
+    return data_frame_make(cmd, status, 4 + record[3] / 8, record);
+}
+
+static data_frame_tx_t *cmd_processor_indala_write(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
+    if (length < 4) return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+    size_t n = 4U + data[3] / 8U;
+    if (length < n + 8 || (length - n - 4) % 4 || (length - n - 4) / 4 > 255 || !indala_valid(data, n))
+        return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+    status = write_indala_to_t55xx(data, data + n, data + n + 4, (length - n - 4) / 4);
+    return data_frame_make(cmd, status, 0, NULL);
 }
 
 static data_frame_tx_t *cmd_processor_em410x_scan(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
@@ -1463,6 +1478,31 @@ static data_frame_tx_t *cmd_processor_ioprox_set_emu_id(uint16_t cmd, uint16_t s
     memcpy(buffer->buffer, data, LF_IOPROX_TAG_ID_SIZE);
     tag_emulation_load_by_buffer(TAG_TYPE_IOPROX, false);
     return data_frame_make(cmd, STATUS_SUCCESS, 0, NULL);
+}
+
+static data_frame_tx_t *cmd_processor_indala_set(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
+    if (!indala_valid(data, length)) return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+    tag_slot_specific_type_t types;
+    tag_emulation_get_specific_types_by_slot(tag_emulation_get_slot(), &types);
+    if (types.tag_lf != indala_type(data)) return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+    tag_data_buffer_t *buffer = get_buffer_by_tag_type(types.tag_lf);
+    if (!buffer || buffer->length < INDALA_RECORD_SIZE) return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+    memset(buffer->buffer, 0, INDALA_RECORD_SIZE);
+    memcpy(buffer->buffer, data, length);
+    tag_emulation_load_by_buffer(types.tag_lf, false);
+    return data_frame_make(cmd, STATUS_SUCCESS, 0, NULL);
+}
+
+static data_frame_tx_t *cmd_processor_indala_get(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
+    tag_slot_specific_type_t types;
+    tag_emulation_get_specific_types_by_slot(tag_emulation_get_slot(), &types);
+    if (length || !IS_INDALA_TYPE(types.tag_lf)) return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+    tag_data_buffer_t *buffer = get_buffer_by_tag_type(types.tag_lf);
+    if (!buffer || buffer->length < INDALA_RECORD_SIZE ||
+            !indala_valid(buffer->buffer, 4U + buffer->buffer[3] / 8U) ||
+            indala_type(buffer->buffer) != types.tag_lf)
+        return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+    return data_frame_make(cmd, STATUS_SUCCESS, 4 + buffer->buffer[3] / 8, buffer->buffer);
 }
 
 static data_frame_tx_t *cmd_processor_idteck_set_emu_id(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
@@ -3447,6 +3487,8 @@ static cmd_data_map_t m_data_cmd_map[] = {
     {    DATA_CMD_MF1_HARDNESTED_ACQUIRE,       before_hf_reader_run,        cmd_processor_mf1_hardnested_nonces_acquire, after_hf_reader_run    },
     {    DATA_CMD_MF1_CHECK_KEYS_ON_BLOCK,      before_hf_reader_run,        cmd_processor_mf1_check_keys_on_block,       after_hf_reader_run    },
 
+    { DATA_CMD_INDALA_SCAN_EX, before_reader_run, cmd_processor_indala_scan, NULL },
+    { DATA_CMD_INDALA_WRITE_TO_T55XX, before_reader_run, cmd_processor_indala_write, NULL },
     {    DATA_CMD_INDALA_SCAN,                  before_reader_run,           cmd_processor_indala_scan,               NULL                   },
     {    DATA_CMD_EM410X_SCAN,                  before_reader_run,           cmd_processor_em410x_scan,                   NULL                   },
     {    DATA_CMD_EM410X_WRITE_TO_T55XX,        before_reader_run,           cmd_processor_em410x_write_to_t55xx,         NULL                   },
@@ -3540,6 +3582,8 @@ static cmd_data_map_t m_data_cmd_map[] = {
     {    DATA_CMD_PAC_GET_EMU_ID,                 NULL,                      cmd_processor_pac_get_emu_id,                NULL                   },
     {    DATA_CMD_JABLOTRON_SET_EMU_ID,           NULL,                      cmd_processor_jablotron_set_emu_id,          NULL                   },
     {    DATA_CMD_JABLOTRON_GET_EMU_ID,           NULL,                      cmd_processor_jablotron_get_emu_id,          NULL                   },
+    { DATA_CMD_INDALA_SET_EMU_ID, NULL, cmd_processor_indala_set, NULL },
+    { DATA_CMD_INDALA_GET_EMU_ID, NULL, cmd_processor_indala_get, NULL },
     {    DATA_CMD_IDTECK_SET_EMU_ID,              NULL,                      cmd_processor_idteck_set_emu_id,             NULL                   },
     {    DATA_CMD_IDTECK_GET_EMU_ID,              NULL,                      cmd_processor_idteck_get_emu_id,             NULL                   },
 

@@ -10,6 +10,7 @@
 #include "protocols/ioprox.h"
 #include "protocols/hidprox.h"
 #include "protocols/idteck.h"
+#include "protocols/indala.h"
 #include "protocols/t55xx.h"
 #include "protocols/jablotron.h"
 #include "protocols/pac.h"
@@ -28,10 +29,10 @@ static uint32_t g_timeout_readem_ms = 500;
 /**
  * Search EM410X tag
  */
-extern bool indala_read(uint8_t *raw, uint32_t timeout_ms);
+extern bool indala_read(uint8_t *raw, uint32_t timeout_ms, uint8_t psk);
 
-uint8_t scan_indala(uint8_t *raw) {
-    return indala_read(raw, g_timeout_readem_ms) ? STATUS_LF_TAG_OK : STATUS_LF_TAG_NO_FOUND;
+uint8_t scan_indala(uint8_t *raw, uint8_t psk) {
+    return indala_read(raw, g_timeout_readem_ms, psk) ? STATUS_LF_TAG_OK : STATUS_LF_TAG_NO_FOUND;
 }
 
 uint8_t scan_em410x(uint8_t *uid) {
@@ -261,6 +262,29 @@ uint8_t write_jablotron_to_t55xx(uint8_t *uid, uint8_t *new_passwd, uint8_t *old
 /**
  * Write IDTECK card data to t55xx (PSK1 RF/32, 64-bit frame).
  */
+uint8_t write_indala_to_t55xx(uint8_t *record, uint8_t *new_passwd, uint8_t *old_passwds, uint8_t old_count) {
+    uint32_t blocks[8] = {0};
+    uint8_t count = indala_t55xx_blocks(record, blocks);
+    if (!count) return STATUS_PAR_ERR;
+    uint32_t passwd = bytes_to_num(new_passwd, 4);
+    start_lf_125khz_radio();
+    bsp_delay_ms(1);
+    try_reset_t55xx_passwd(passwd, old_passwds, old_count);
+    // Commit configuration last. A 224-bit frame uses block 7 as data, so
+    // it cannot also reserve that block as a password and must clear PWD.
+    for (uint8_t i = 1; i < count; i++) {
+        t55xx_send_cmd(T5577_OPCODE_PAGE0, &passwd, 0, &blocks[i], i);
+        t55xx_send_cmd(T5577_OPCODE_PAGE0, NULL, 0, &blocks[i], i);
+    }
+    uint32_t final_passwd = count == 8 ? blocks[7] : passwd;
+    t55xx_send_cmd(T5577_OPCODE_PAGE0, &final_passwd, 0, &blocks[0], 0);
+    t55xx_send_cmd(T5577_OPCODE_PAGE0, &passwd, 0, &blocks[0], 0);
+    t55xx_send_cmd(T5577_OPCODE_PAGE0, NULL, 0, &blocks[0], 0);
+    t55xx_send_cmd(T5577_OPCODE_RESET, NULL, 0, NULL, 0);
+    stop_lf_125khz_radio();
+    return STATUS_LF_TAG_OK;
+}
+
 uint8_t write_idteck_to_t55xx(uint8_t *data, uint8_t *new_passwd, uint8_t *old_passwds, uint8_t old_passwd_count) {
     uint32_t blks[7] = {0x00};
     uint8_t blk_count = idteck_t55xx_writer(data, blks);

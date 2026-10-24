@@ -127,6 +127,10 @@
 #define DATA_CMD_IDTECK_WRITE_TO_T55XX          (3018)
 #define DATA_CMD_JABLOTRON_SCAN                 (3019)
 #define DATA_CMD_JABLOTRON_WRITE_TO_T55XX       (3020)
+#define DATA_CMD_INDALA_SCAN_EX                 (3802)
+#define DATA_CMD_INDALA_WRITE_TO_T55XX          (3803)
+#define DATA_CMD_INDALA_SET_EMU_ID              (5800)
+#define DATA_CMD_INDALA_GET_EMU_ID              (5801)
 #define DATA_CMD_INDALA_SCAN                    (3801)
 #define DATA_CMD_PYRAMID_SCAN                   (3021)
 

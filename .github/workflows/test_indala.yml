@@ -1,0 +1,22 @@
+name: Indala regression tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  protocol-and-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Decoder, T55xx configuration and emulation phase tests
+        run: |
+          cc -O2 -Wall -Wextra -Werror -Ifirmware/application/src/rfid/reader/lf -Ifirmware/application/src/rfid/nfctag/lf firmware/application/tests/test_indala_decode.c firmware/application/src/rfid/reader/lf/indala_decode.c firmware/application/src/rfid/nfctag/lf/protocols/indala.c -lm -o /tmp/indala-test
+          /tmp/indala-test
+      - name: CLI regression tests
+        env:
+          PYTHONPATH: software/script
+        run: |
+          python -m pip install -r software/script/requirements.txt pytest pycryptodome
+          python -m pytest software/script/tests/test_cli_entrypoint.py software/script/tests/test_lf_clone_cli.py software/script/tests/test_lf_clone_utils.py software/script/tests/test_indala_integration.py -q

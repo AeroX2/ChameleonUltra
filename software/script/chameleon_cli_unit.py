@@ -1,3 +1,4 @@
+from indala import IndalaFrame
 import binascii
 import glob
 import math
@@ -942,7 +943,7 @@ emv = root.subgroup("emv", "EMV contactless payment card commands")
 
 
 lf_em_410x = lf_em.subgroup("410x", "EM410x commands")
-lf_indala = lf.subgroup("indala", "Experimental 64-bit Indala reading")
+lf_indala = lf.subgroup("indala", "Indala read, save, emulate and T55xx write")
 lf_hid = lf.subgroup("hid", "HID commands")
 lf_hid_prox = lf_hid.subgroup("prox", "HID Prox commands")
 lf_ioprox = lf.subgroup("ioprox", "ioProx commands")
@@ -6029,16 +6030,86 @@ class LFEM410xWriteT55xx(LFEMIdArgsUnit, ReaderRequiredUnit):
         print(f" - EM410x ID write done: {id_hex}")
 
 
+def _indala_input(parser):
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--raw", help="Complete 16- or 56-digit frame in hex")
+    source.add_argument("--file", help="Indala JSON file saved by read/econfig")
+    parser.add_argument("--psk", type=int, choices=(1, 2), help="Encoding for --raw; default PSK1 for 64-bit, PSK2 for 224-bit")
+    return parser
+
+
+def _indala_frame(args):
+    if args.file:
+        if args.psk is not None:
+            raise ArgsParserError("--psk cannot override a saved file's encoding")
+        return IndalaFrame.load(args.file)
+    if args.raw:
+        raw = bytes.fromhex(args.raw)
+        return IndalaFrame(raw, args.psk if args.psk is not None else (1 if len(raw) == 8 else 2))
+    raise ArgsParserError("Provide --raw or --file")
+
+
+def _indala_print(frame):
+    print(f"Indala {frame.bits}-bit PSK{frame.psk}: {frame.raw.hex().upper()}")
+
+
 @lf_indala.command("read")
 class LFIndalaRead(ReaderRequiredUnit):
     def args_parser(self) -> ArgumentParserNoExit:
         parser = ArgumentParserNoExit()
-        parser.description = "Read a raw 64-bit Indala PSK1 RF/32 frame (experimental)"
+        parser.description = "Read a 64- or 224-bit Indala frame, preserving PSK encoding"
+        parser.add_argument("--psk", type=int, choices=(1, 2), default=0, help="Force PSK1/PSK2; default auto (64-bit PSK1 or PSK2)")
+        parser.add_argument("--output", help="Save a lossless Indala JSON file")
         return parser
 
-    def on_exec(self, args: argparse.Namespace):
-        raw = self.cmd.indala_scan()
-        print(f"Indala raw (64-bit): {raw.hex().upper()}")
+    def on_exec(self, args):
+        frame = self.cmd.indala_scan_ex(args.psk)
+        _indala_print(frame)
+        if args.output:
+            frame.save(args.output)
+
+
+@lf_indala.command("write")
+class LFIndalaWrite(ReaderRequiredUnit):
+    def args_parser(self):
+        parser = _indala_input(ArgumentParserNoExit())
+        parser.description = "Write Indala to T55xx and verify by reading back"
+        return parser
+
+    def on_exec(self, args):
+        frame = _indala_frame(args)
+        write_and_verify(lambda: self.cmd.indala_write_to_t55xx(frame),
+                         lambda: self.cmd.indala_scan_ex(frame.psk), lambda observed: observed == frame,
+                         retry_exceptions=(UnexpectedResponseError,))
+        print("Indala T55xx write verified")
+
+
+@lf_indala.command("econfig")
+class LFIndalaEconfig(SlotIndexArgsAndGoUnit):
+    def args_parser(self):
+        parser = _indala_input(ArgumentParserNoExit())
+        parser.description = "Get or replace a slot's Indala frame and save it to flash"
+        self.add_slot_args(parser)
+        parser.add_argument("--output", help="Export the slot to an Indala JSON file")
+        return parser
+
+    def on_exec(self, args):
+        if args.raw or args.file:
+            frame = _indala_frame(args)
+            slot = SlotNumber.from_fw(self.cmd.get_active_slot())
+            tag = TagSpecificType(frame.tag_type)
+            self.cmd.set_slot_tag_type(slot, tag)
+            self.cmd.set_slot_data_default(slot, tag)
+            self.cmd.indala_set_emu_id(frame)
+            self.cmd.set_slot_enable(slot, TagSenseType.LF, True)
+            self.cmd.slot_data_config_save()
+        else:
+            if args.psk is not None:
+                raise ArgsParserError("--psk requires --raw")
+            frame = self.cmd.indala_get_emu_id()
+        _indala_print(frame)
+        if args.output:
+            frame.save(args.output)
 
 
 @lf_hid_prox.command("read")

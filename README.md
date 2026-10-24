@@ -33,10 +33,10 @@ This fork includes upstream v2.3.0 plus these changes:
 * Non-blocking boot/wake LED animation and faster button/slot response.
 * Persistent HF receiver gain (`hf 14a rxgain`) and LF carrier tuning (`lf tune`).
 * LF clone write verification and HID Prox format-candidate enumeration.
-* Experimental **64-bit Indala PSK1 RF/32 reading**: `lf indala read` returns
-  the raw eight-byte frame after two identical consecutive frames are decoded.
-  This is not a facility/card-number interpretation. Indala 224-bit tags,
-  emulation and writing are not implemented by this change.
+* **Indala 64/224-bit PSK1/PSK2** at fc/2, RF/32: raw-frame reading,
+  JSON import/export, persistent slot storage, emulation and verified T55xx
+  writing through the matching CLI and companion GUI.
+  Credential-number/facility-code interpretation is not included.
 
 Indala has synthetic decoder coverage but has **not been verified on physical
 hardware**. Validate it with a known Indala tag before relying on its output.

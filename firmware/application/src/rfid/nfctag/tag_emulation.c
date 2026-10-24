@@ -51,7 +51,7 @@ bool is_tag_specific_type_valid(tag_specific_type_t tag_type) {
 /**
  * Tag data stored in flash. Total length must be aligned by 4 bytes (whole words).
  */
-static uint8_t m_tag_data_buffer_lf[20];  // LF card data buffer
+static uint8_t m_tag_data_buffer_lf[32];  // Includes the 224-bit Indala record header.
 static uint16_t m_tag_data_lf_crc;
 static tag_data_buffer_t m_tag_data_lf = {sizeof(m_tag_data_buffer_lf), m_tag_data_buffer_lf, &m_tag_data_lf_crc};
 
@@ -98,6 +98,10 @@ static tag_base_handler_map_t tag_base_map[] = {
     {TAG_SENSE_LF, TAG_TYPE_VIKING,      lf_tag_data_loadcb,           lf_tag_viking_data_savecb,    lf_tag_viking_data_factory,    &m_tag_data_lf},
     {TAG_SENSE_LF, TAG_TYPE_PAC,         lf_tag_data_loadcb,           lf_tag_pac_data_savecb,       lf_tag_pac_data_factory,       &m_tag_data_lf},
     {TAG_SENSE_LF, TAG_TYPE_JABLOTRON,   lf_tag_data_loadcb,           lf_tag_jablotron_data_savecb, lf_tag_jablotron_data_factory, &m_tag_data_lf},
+    {TAG_SENSE_LF, TAG_TYPE_INDALA64, lf_tag_data_loadcb, lf_tag_indala_data_savecb, lf_tag_indala_data_factory, &m_tag_data_lf},
+    {TAG_SENSE_LF, TAG_TYPE_INDALA224, lf_tag_data_loadcb, lf_tag_indala_data_savecb, lf_tag_indala_data_factory, &m_tag_data_lf},
+    {TAG_SENSE_LF, TAG_TYPE_INDALA64_PSK2, lf_tag_data_loadcb, lf_tag_indala_data_savecb, lf_tag_indala_data_factory, &m_tag_data_lf},
+    {TAG_SENSE_LF, TAG_TYPE_INDALA224_PSK1, lf_tag_data_loadcb, lf_tag_indala_data_savecb, lf_tag_indala_data_factory, &m_tag_data_lf},
     {TAG_SENSE_LF, TAG_TYPE_IDTECK,      lf_tag_data_loadcb,           lf_tag_idteck_data_savecb,    lf_tag_idteck_data_factory,    &m_tag_data_lf},
     {TAG_SENSE_LF, TAG_TYPE_FARPOINTE_PYRAMID, lf_tag_data_loadcb,     lf_tag_pyramid_data_savecb,   lf_tag_pyramid_data_factory,   &m_tag_data_lf},
     // MF1 tag emulation

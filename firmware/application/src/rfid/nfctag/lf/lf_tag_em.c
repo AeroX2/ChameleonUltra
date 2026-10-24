@@ -11,6 +11,7 @@
 #include "protocols/em410x.h"
 #include "protocols/hidprox.h"
 #include "protocols/idteck.h"
+#include "protocols/indala.h"
 #include "protocols/ioprox.h"
 #include "protocols/jablotron.h"
 #include "protocols/pac.h"
@@ -39,6 +40,12 @@ static tag_specific_type_t m_tag_type = TAG_TYPE_UNDEFINED;
 // The pwm to broadcast modulated card id
 const nrfx_pwm_t m_broadcast = NRFX_PWM_INSTANCE(0);
 const nrf_pwm_sequence_t *m_pwm_seq = NULL;
+// Repeat each subcarrier cycle sixteen times in hardware: one entry per bit.
+static nrf_pwm_values_wave_form_t indala_pwm[INDALA_MAX_BITS * 2];
+static nrf_pwm_sequence_t indala_seq = {
+    .values.p_wave_form = indala_pwm, .repeats = 15, .end_delay = 0,
+};
+
 
 static void lf_field_lost(void) {
     // Open the incident interruption, so that the next event can be in and out normally
@@ -280,6 +287,20 @@ int lf_tag_data_loadcb(tag_specific_type_t type, tag_data_buffer_t *buffer) {
         return LF_JABLOTRON_TAG_ID_SIZE;
     }
 
+    if (IS_INDALA_TYPE(type) && buffer->length >= INDALA_RECORD_SIZE) {
+        uint8_t phases[INDALA_MAX_BITS * 2];
+        size_t n = indala_phases(buffer->buffer, phases, sizeof(phases));
+        if (!n || indala_type(buffer->buffer) != type) return 0;
+        for (size_t i = 0; i < n; i++) {
+            indala_pwm[i].channel_0 = 8 | (phases[i] ? 0x8000 : 0);
+            indala_pwm[i].counter_top = 16;
+        }
+        indala_seq.length = n * 4;
+        m_pwm_seq = &indala_seq;
+        m_tag_type = type;
+        return INDALA_RECORD_SIZE;
+    }
+
     if (type == TAG_TYPE_IDTECK && buffer->length >= LF_IDTECK_TAG_ID_SIZE) {
         m_tag_type = type;
         void *codec = idteck.alloc();
@@ -469,4 +490,17 @@ bool lf_tag_pyramid_data_factory(uint8_t slot, tag_specific_type_t tag_type) {
         0x01, 0x01, 0x01, 0x4A, 0xE3, 0x5E, 0x7F, 0x4F,
     };
     return lf_tag_data_factory(slot, tag_type, tag_id, sizeof(tag_id));
+}
+
+int lf_tag_indala_data_savecb(tag_specific_type_t type, tag_data_buffer_t *buffer) {
+    return IS_INDALA_TYPE(type) && m_tag_type == type ? INDALA_RECORD_SIZE : 0;
+}
+
+bool lf_tag_indala_data_factory(uint8_t slot, tag_specific_type_t type) {
+    uint8_t record[INDALA_RECORD_SIZE] = {1, 1, 0, 64};
+    if (type == TAG_TYPE_INDALA224 || type == TAG_TYPE_INDALA64_PSK2) record[1] = 2;
+    if (type == TAG_TYPE_INDALA224 || type == TAG_TYPE_INDALA224_PSK1) record[3] = 224;
+    record[4] = record[3] == 64 ? 0xa0 : 0x80;
+    record[8] = 0x80;
+    return lf_tag_data_factory(slot, type, record, sizeof(record));
 }

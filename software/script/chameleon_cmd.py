@@ -7,6 +7,7 @@ from chameleon_utils import expect_response, reconstruct_full_nt, parity_to_str
 from chameleon_enum import Command, SlotNumber, Status, TagSenseType, TagSpecificType
 from chameleon_enum import ButtonPressFunction, ButtonType, MifareClassicDarksideStatus
 from chameleon_enum import MfcKeyType, MfcValueBlockOperator
+from indala import IndalaFrame
 from lf_clone_utils import DEFAULT_T55XX_NEW_KEY, DEFAULT_T55XX_OLD_KEYS
 
 CURRENT_VERSION_SETTINGS = 14
@@ -778,6 +779,31 @@ class ChameleonCMD:
                 Command.EM410X_ELECTRA_WRITE_TO_T55XX, data
             )
         raise ValueError("The id bytes length must equal 5 (EM410X) or 13 (Electra)")
+
+    @expect_response(Status.LF_TAG_OK)
+    def indala_scan_ex(self, psk=0):
+        if psk not in (0, 1, 2):
+            raise ValueError("PSK hint must be 0, 1 or 2")
+        resp = self.device.send_cmd_sync(Command.INDALA_SCAN_EX, bytes((psk,)))
+        if resp.status == Status.LF_TAG_OK:
+            resp.parsed = IndalaFrame.from_payload(resp.data)
+        return resp
+
+    @expect_response(Status.SUCCESS)
+    def indala_get_emu_id(self):
+        resp = self.device.send_cmd_sync(Command.INDALA_GET_EMU_ID)
+        if resp.status == Status.SUCCESS:
+            resp.parsed = IndalaFrame.from_payload(resp.data)
+        return resp
+
+    @expect_response(Status.SUCCESS)
+    def indala_set_emu_id(self, frame):
+        return self.device.send_cmd_sync(Command.INDALA_SET_EMU_ID, frame.to_payload())
+
+    @expect_response(Status.LF_TAG_OK)
+    def indala_write_to_t55xx(self, frame):
+        return self.device.send_cmd_sync(Command.INDALA_WRITE_TO_T55XX,
+            frame.to_payload() + DEFAULT_T55XX_NEW_KEY + b"".join(DEFAULT_T55XX_OLD_KEYS))
 
     @expect_response(Status.LF_TAG_OK)
     def indala_scan(self):

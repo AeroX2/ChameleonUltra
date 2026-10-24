@@ -3,44 +3,86 @@
 #include <stdio.h>
 #include <string.h>
 #include "indala_decode.h"
+#include "protocols/indala.h"
+#include "protocols/t55xx.h"
 
 static int16_t samples[INDALA_CAPTURE_SAMPLES];
-static const uint64_t frame = UINT64_C(0xa0000000a1b2c3d4);
 static uint32_t rng = 1;
-static int noise(void) {
-    rng = rng * 1664525U + 1013904223U;
-    return (int)((rng >> 24) & 31) - 16;
-}
+static int noise(void) { rng = rng * 1664525U + 1013904223U; return (int)((rng >> 24) & 31) - 16; }
 
-static void synth(double phase, unsigned shift, unsigned rotation, bool mismatch) {
+static void synth(const uint8_t *record, double phase, unsigned shift, unsigned rotation, bool mismatch) {
+    // Independent transmitter model, deliberately not using indala_phases.
+    unsigned n = record[3];
+    uint8_t states[1000];
+    unsigned value = 0;
+    for (size_t b = 0; b < 1000; b++) {
+        unsigned raw = (record[4 + (b % n) / 8] >> (7 - b % 8)) & 1;
+        if (mismatch && b % n == 50 && b / n % 2) raw ^= 1;
+        value = record[1] == 1 ? raw : value ^ raw;
+        states[b] = value;
+    }
     for (size_t i = 0; i < INDALA_CAPTURE_SAMPLES; i++) {
-        unsigned bit = ((i + shift) * 3 / 128) + rotation;
-        uint64_t word = frame;
-        if (mismatch) word ^= (uint64_t)(bit / 64) << 8;
-        int sign = ((word >> (63 - bit % 64)) & 1) ? 1 : -1;
+        unsigned bit = (i + shift) * 3 / 128 + rotation;
+        int sign = states[bit] ? 1 : -1;
         samples[i] = 128 + (int)(60 * sign * cos(2 * 3.141592653589793 * 3 * i / 8 + phase)) + noise();
     }
 }
 
 int main(void) {
-    uint8_t raw[8];
-    const uint8_t expected[8] = {0xa0, 0, 0, 0, 0xa1, 0xb2, 0xc3, 0xd4};
-    // All frame rotations, several symbol offsets and full carrier phase range.
-    for (unsigned rotation = 0; rotation < 64; rotation++) {
-        for (unsigned phase = 0; phase < 16; phase++) {
-            synth(phase * 3.141592653589793 / 8, phase * 3, rotation, false);
-            assert(indala_decode(samples, INDALA_CAPTURE_SAMPLES, raw));
-            assert(memcmp(raw, expected, 8) == 0);
+    uint8_t output[32];
+    unsigned cases = 0;
+    for (unsigned size = 0; size < 2; size++) {
+        unsigned bits = size ? 224 : 64;
+        for (unsigned psk = 1; psk <= 2; psk++) {
+            uint8_t record[32] = {1, psk, 0, bits};
+            record[4] = size ? 0x80 : 0xa0;
+            for (size_t i = 8; i < 4 + bits / 8; i++) record[i] = 0xa1 ^ (i * 37);
+            record[8] |= 0x80;
+            assert(indala_valid(record, 4 + bits / 8));
+            for (unsigned rotation = 0; rotation < bits; rotation++) {
+                for (unsigned phase = 0; phase < 4; phase++) {
+                    synth(record, phase * 1.31, phase * 11, rotation, false);
+                    assert(indala_decode_ex(samples, INDALA_CAPTURE_SAMPLES, output, psk));
+                    if (memcmp(output, record, 32)) {
+                        printf("Mismatch bits=%u psk=%u rotation=%u phase=%u got=", bits, psk, rotation, phase);
+                        for (int k=0;k<32;k++) printf("%02x",output[k]);
+                        printf("\n"); fflush(stdout);
+                    }
+                    assert(memcmp(output, record, 32) == 0);
+                    cases++;
+                }
+            }
+            if ((bits == 64 && psk == 1) || (bits == 224 && psk == 2)) {
+                synth(record, 0.4, 17, 0, false);
+                assert(indala_decode(samples, INDALA_CAPTURE_SAMPLES, output));
+                assert(memcmp(output, record, 32) == 0);
+            }
+            synth(record, 0.4, 17, 0, true);
+            assert(!indala_decode_ex(samples, INDALA_CAPTURE_SAMPLES, output, psk));
+            uint32_t blocks[8] = {0};
+            assert(indala_t55xx_blocks(record, blocks) == bits / 32 + 1);
+            assert(((blocks[0] >> T5577_MAXBLOCK_SHIFT) & 7) == bits / 32);
+            assert(!!(blocks[0] & T5577_PWD) == (bits == 64));
+            assert((blocks[0] & 0x3000) == (psk == 1 ? T5577_MODULATION_PSK1 : T5577_MODULATION_PSK2));
+            for (unsigned i = 0; i < bits / 8; i++) assert(((blocks[1 + i / 4] >> (24 - i % 4 * 8)) & 255) == record[4 + i]);
+            uint8_t phases[448];
+            size_t count = indala_phases(record, phases, sizeof(phases));
+            assert(count == bits || count == bits * 2);
+            for (size_t i = 0; i < count; i++) {
+                unsigned raw = (record[4 + (i % bits) / 8] >> (7 - i % 8)) & 1;
+                unsigned decoded = psk == 1 ? phases[i] : phases[i] ^ phases[(i + count - 1) % count];
+                assert(decoded == raw);
+            }
+            assert(!indala_phases(record, phases, 1));
+            record[0] = 2;
+            assert(!indala_valid(record, 4 + bits / 8));
         }
     }
-    synth(0.4, 17, 0, true);
-    assert(!indala_decode(samples, INDALA_CAPTURE_SAMPLES, raw));
     memset(samples, 0, sizeof(samples));
-    assert(!indala_decode(samples, INDALA_CAPTURE_SAMPLES, raw));
+    assert(!indala_decode(samples, INDALA_CAPTURE_SAMPLES, output));
     for (size_t i = 0; i < INDALA_CAPTURE_SAMPLES; i++) samples[i] = 128 + noise();
-    assert(!indala_decode(samples, INDALA_CAPTURE_SAMPLES, raw));
-    assert(!indala_decode(NULL, INDALA_CAPTURE_SAMPLES, raw));
-    assert(!indala_decode(samples, 100, raw));
-    puts("Indala decoder: 1024 noisy phase/alignment cases and rejection checks passed");
-    return 0;
+    assert(!indala_decode(samples, INDALA_CAPTURE_SAMPLES, output));
+    assert(!indala_decode(NULL, INDALA_CAPTURE_SAMPLES, output));
+    assert(!indala_decode(samples, 100, output));
+    printf("%u Indala noisy alignment/encoding cases, rejection, T55xx and phase-loop checks passed\n", cases);
 }

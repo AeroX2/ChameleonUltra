@@ -116,6 +116,10 @@ class Command(enum.IntEnum):
     JABLOTRON_SCAN = 3019
     JABLOTRON_WRITE_TO_T55XX = 3020
     INDALA_SCAN = 3801
+    INDALA_SCAN_EX = 3802
+    INDALA_WRITE_TO_T55XX = 3803
+    INDALA_SET_EMU_ID = 5800
+    INDALA_GET_EMU_ID = 5801
     PYRAMID_SCAN = 3021
 
     MF1_WRITE_EMU_BLOCK_DATA = 4000
@@ -345,7 +349,10 @@ class TagSpecificType(enum.IntEnum):
     # Paradox
 
     # PSK Tag-Talk-First      300
-    # Indala
+    INDALA64 = 300
+    INDALA224 = 301
+    INDALA64_PSK2 = 302
+    INDALA224_PSK1 = 303
     # Keri
     # NexWatch
     IDTECK = 310
@@ -414,6 +421,8 @@ class TagSpecificType(enum.IntEnum):
     def __str__(self):
         if self == TagSpecificType.UNDEFINED:
             return "Undefined"
+        elif self in (TagSpecificType.INDALA64, TagSpecificType.INDALA224, TagSpecificType.INDALA64_PSK2, TagSpecificType.INDALA224_PSK1):
+            return self.name.replace("_", " ")
         elif self == TagSpecificType.EM410X:
             return "EM410X"
         elif self == TagSpecificType.EM410X_16:

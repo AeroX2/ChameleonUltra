@@ -5,7 +5,7 @@ This project uses the changelog in accordance with [keepchangelog](http://keepac
 ## [unreleased][unreleased]
 
  - Merge upstream v2.3.0 into the AeroX2 fork, preserving custom button controls and RF tuning.
- - Add experimental `lf indala read` for raw 64-bit PSK1 RF/32 frames; physical hardware validation is pending.
+ - Add 64/224-bit Indala PSK1/PSK2 reading, JSON import/export, persistent slots, emulation and read-back-verified T55xx writing. Physical hardware validation is pending.
  - Resolve upstream/fork command-ID collisions; update firmware and CLI together.
  - Migrate fork settings v13 to v14 and apply the configurable long-press threshold to held-button timers.
  - Fix the settings response length to include the sleep timeout expected by the CLI.

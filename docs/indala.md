@@ -1,53 +1,90 @@
-# Experimental Indala reader
+# Indala support
 
-Use the matching firmware and CLI, connect an Ultra, then run:
+Use matching firmware, CLI and companion GUI builds. The Ultra can read and
+write; Ultra and Lite can store and emulate Indala frames. Supported modulation
+is PSK1 or PSK2, fc/2, RF/32, with 64-bit or 224-bit raw frames. Raw data and
+encoding are preserved through files, slots and writes. Facility/card-number
+interpretation and other carrier/bit rates are outside this implementation.
+
+## CLI
 
 ```text
 hw mode r
-lf indala read
+lf indala read --output indala.json
+lf indala econfig -s 1 --file indala.json
+lf indala econfig -s 1 --output exported.json
+hw mode e
 ```
 
-The command reports a raw 64-bit frame, for example
-`Indala raw (64-bit): A0000000A1B2C3D4`. The example is synthetic.
-Only PSK1, fc/2, RF/32, 64-bit frames with the 33-bit Indala preamble
-are handled. Two adjacent identical frames must be observed. There is no
-Indala emulation, writing, 224-bit decoding or credential-number extraction.
-The explicit command is not added to automatic LF discovery.
+Select slot 1 to emulate the stored credential. Slot configuration saves to flash.
+To write a T55xx test tag, put it on the Ultra, switch to reader mode and run:
 
-## Implementation and validation limits
+```text
+hw mode r
+lf indala write --file indala.json
+```
 
-The Ultra samples the LF envelope using SAADC at 16 MHz / 96 (166.67 kHz),
-with a 3 us acquisition time. TIMER2 temporarily supplies the sample clock
-instead of counting carrier periods. Every exit restores counter mode,
-the PWM sample route, battery ADC configuration and the original LF carrier.
-A fixed 16 KiB capture buffer avoids the firmware's 8 KiB heap limit.
+The command only reports success after reading back the same bit length,
+encoding and raw bytes. A failed verification is reported as failure even if a
+write command was sent. 224-bit data occupies all seven T55xx data blocks, so
+password protection is disabled; block 7 holds credential data. 64-bit writes
+retain the standard password configuration.
 
-The decoder correlates the fc/2 subcarrier in quadrature, searches symbol
-alignment, checks either phase polarity and requires repeated raw frames.
-This approach was informed by the public
-[nieldk implementation](https://github.com/nieldk/ChameleonUltra/blob/d77d39f09179d6133b0967bbebc49afa6c5bd216/firmware/application/src/rfid/nfctag/lf/protocols/indala.c).
-Our decoder and capture path are independent implementations; this is not a
-merge of that fork. Synthetic waveforms do not establish that real Indala
-tags produce a sufficiently strong envelope on every Ultra hardware revision.
+Raw entry is also supported with `--raw HEX --psk 1` or `--psk 2` on `write` and
+`econfig`. Use 16 hex digits for 64 bits or 56 for 224 bits, including the preamble.
+Without an explicit encoding, raw entry defaults to PSK1 for 64 bits and PSK2
+for 224 bits. JSON files preserve the encoding explicitly.
 
-Host regression test (from the repository root):
+Automatic reading prioritizes 64-bit PSK1 and then PSK2. For unusual 224-bit
+PSK1 tags, use `lf indala read --psk 1`; `--psk 2` forces PSK2. The long preamble
+can be ambiguous between absolute phases and phase transitions, so the reader
+must not silently label an unusual 224-bit PSK1 tag as a reliable automatic result.
+
+## GUI
+
+The LF Read button scans Indala as well as existing LF formats. Its Indala
+selector offers automatic, PSK1 and PSK2. Save a read as a card, load it into a
+slot, edit/export the slot, or use Write to program a T55xx tag. Saved cards
+retain the bit length and encoding through their tag type. Read errors display
+an error and release the busy state; continuous scans cannot overlap LF reads.
+Older firmware without the extended read capability is skipped by the Indala
+scanner. Install matching firmware for slot and write operations.
+
+## Implementation and validation
+
+A versioned record contains `[1, encoding, 0, bit_count, raw_bytes...]` and is
+12 or 32 bytes. Flash stores a padded 32-byte record. Tag types 300/301 represent
+64-bit PSK1/224-bit PSK2; 302/303 represent 64-bit PSK2/224-bit PSK1.
+Commands 3802/3803 read/write records; 5800/5801 set/get the active slot record.
+Legacy command 3801 retains its eight-byte 64-bit PSK1 response.
+
+The Ultra captures 28,800 signed ADC samples at 166.67 kHz in static memory,
+correlates the fc/2 subcarrier, searches alignment and requires two identical
+consecutive frames. Capture restores the LF timer, ADC and configured carrier.
+PWM emulation repeats each half-carrier cycle 16 times per bit and doubles odd
+PSK2 transition-parity frames to maintain phase continuity on looping.
+
+Host decoder tests cover 2,304 noisy alignment/phase cases across all four
+formats, automatic detection, rejection, T55xx block generation and emulation
+phase continuity. CLI and GUI integration tests cover read, file/card persistence,
+slot operations and exact write verification. Synthetic samples and mocked
+communication do **not** establish physical read range or interoperability.
+Physical tag/reader validation remains pending.
 
 ```sh
-cc -O2 -Wall -Wextra -Werror -Ifirmware/application/src/rfid/reader/lf \
+cc -O2 -Wall -Wextra -Werror \
+  -Ifirmware/application/src/rfid/reader/lf \
+  -Ifirmware/application/src/rfid/nfctag/lf \
   firmware/application/tests/test_indala_decode.c \
-  firmware/application/src/rfid/reader/lf/indala_decode.c -lm -o /tmp/test_indala
+  firmware/application/src/rfid/reader/lf/indala_decode.c \
+  firmware/application/src/rfid/nfctag/lf/protocols/indala.c -lm -o /tmp/test_indala
 /tmp/test_indala
 ```
 
-Before calling this hardware-validated:
-
-1. Compare a known 64-bit Indala tag with a reference reader. Repeat at several
-   distances and orientations, including a T55xx test tag if available.
-2. Check no-tag, EM410x and HID Prox inputs do not produce Indala results.
-3. After success and timeout, read EM410x/HID/Pyramid tags and check battery
-   reporting, BLE and the configured LF tuning still work.
-4. Test reboot with existing fork v13 settings; confirm bindings and tuning
-   remain intact and the long-press threshold defaults to 1000 ms.
+Before treating this as hardware-validated, compare 64/224-bit tags against a
+reference reader, verify slot save/reboot/emulation on a reader, and verify
+T55xx reads after power cycling. Also check no-tag/other LF formats, scan timeout
+recovery, battery reporting, BLE and existing slot/settings migration.
 
 ## Protocol compatibility
 

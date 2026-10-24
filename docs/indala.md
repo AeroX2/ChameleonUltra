@@ -58,9 +58,15 @@ A versioned record contains `[1, encoding, 0, bit_count, raw_bytes...]` and is
 Commands 3802/3803 read/write records; 5800/5801 set/get the active slot record.
 Legacy command 3801 retains its eight-byte 64-bit PSK1 response.
 
-The Ultra captures 28,800 signed ADC samples at 166.67 kHz in static memory,
+The Ultra captures 28,800 signed ADC samples at 166.67 kHz in one EasyDMA
+transaction into static memory,
 correlates the fc/2 subcarrier, searches alignment and requires two identical
 consecutive frames. Capture restores the LF timer, ADC and configured carrier.
+The former streaming path restarted the ADC in an interrupt every 2,048 samples;
+interrupt delays could lose sample periods and invalidate phase/timing alignment.
+Indala now bypasses that streaming path. A regression fixture demonstrates
+224-bit PSK2 rejection with periodic dropped samples and success without gaps.
+This fixes a capture defect; physical read reliability still needs retesting.
 PWM emulation repeats each half-carrier cycle 16 times per bit and doubles odd
 PSK2 transition-parity frames to maintain phase continuity on looping.
 

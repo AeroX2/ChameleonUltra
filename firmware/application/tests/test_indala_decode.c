@@ -8,6 +8,7 @@
 
 static int16_t samples[INDALA_CAPTURE_SAMPLES];
 static uint32_t rng = 1;
+static bool simulate_dma_gaps = false;
 static int noise(void) { rng = rng * 1664525U + 1013904223U; return (int)((rng >> 24) & 31) - 16; }
 
 static void synth(const uint8_t *record, double phase, unsigned shift, unsigned rotation, bool mismatch) {
@@ -22,9 +23,11 @@ static void synth(const uint8_t *record, double phase, unsigned shift, unsigned 
         states[b] = value;
     }
     for (size_t i = 0; i < INDALA_CAPTURE_SAMPLES; i++) {
-        unsigned bit = (i + shift) * 3 / 128 + rotation;
+        // Old 2048-sample DMA restarts could lose a sample at each boundary.
+        size_t time = i + (simulate_dma_gaps ? i / 2048 : 0);
+        unsigned bit = (time + shift) * 3 / 128 + rotation;
         int sign = states[bit] ? 1 : -1;
-        samples[i] = 128 + (int)(60 * sign * cos(2 * 3.141592653589793 * 3 * i / 8 + phase)) + noise();
+        samples[i] = 128 + (int)(60 * sign * cos(2 * 3.141592653589793 * 3 * time / 8 + phase)) + noise();
     }
 }
 
@@ -55,6 +58,15 @@ int main(void) {
             if ((bits == 64 && psk == 1) || (bits == 224 && psk == 2)) {
                 synth(record, 0.4, 17, 0, false);
                 assert(indala_decode(samples, INDALA_CAPTURE_SAMPLES, output));
+                assert(memcmp(output, record, 32) == 0);
+            }
+            if (bits == 224 && psk == 2) {
+                simulate_dma_gaps = true;
+                synth(record, 0.4, 17, 0, false);
+                assert(!indala_decode_ex(samples, INDALA_CAPTURE_SAMPLES, output, psk));
+                simulate_dma_gaps = false;
+                synth(record, 0.4, 17, 0, false);
+                assert(indala_decode_ex(samples, INDALA_CAPTURE_SAMPLES, output, psk));
                 assert(memcmp(output, record, 32) == 0);
             }
             synth(record, 0.4, 17, 0, true);

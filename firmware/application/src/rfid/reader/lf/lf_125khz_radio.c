@@ -163,8 +163,8 @@ void lf_125khz_radio_saadc_disable(void) {
 
 // PSK capture is exclusive with ASK/FSK reads. Reuse the LF counter as a
 // sample clock, restoring its counter mode and PWM sample route afterwards.
-void lf_125khz_radio_psk_adc_enable(lf_adc_callback_t cb) {
-    register_lf_adc_callback_fast(cb);
+void lf_125khz_radio_psk_adc_enable(lf_adc_callback_t cb, nrf_saadc_value_t *capture, uint16_t count) {
+    register_lf_adc_capture_fast(cb, capture, count);
     nrfx_timer_disable(&m_pwm_timer_counter);
     nrf_timer_mode_set(m_pwm_timer_counter.p_reg, NRF_TIMER_MODE_TIMER);
     nrf_timer_frequency_set(m_pwm_timer_counter.p_reg, NRF_TIMER_FREQ_16MHz);

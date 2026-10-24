@@ -4,6 +4,8 @@ This project uses the changelog in accordance with [keepchangelog](http://keepac
 
 ## [unreleased][unreleased]
 
+ - Capture Indala in one DMA transaction to eliminate interrupt-dependent gaps at 2,048-sample buffer boundaries.
+
  - Merge upstream v2.3.0 into the AeroX2 fork, preserving custom button controls and RF tuning.
  - Add 64/224-bit Indala PSK1/PSK2 reading, JSON import/export, persistent slots, emulation and read-back-verified T55xx writing. Physical hardware validation is pending.
  - Resolve upstream/fork command-ID collisions; update firmware and CLI together.

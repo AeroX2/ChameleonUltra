@@ -23,7 +23,7 @@ bool is_nus_working(void);
 void set_ble_connect_key(uint8_t *key);
 
 void register_lf_adc_callback(lf_adc_callback_t cb);
-void register_lf_adc_callback_fast(lf_adc_callback_t cb);
+void register_lf_adc_capture_fast(lf_adc_callback_t cb, nrf_saadc_value_t *capture, uint16_t count);
 void unregister_lf_adc_callback(void);
 
 #endif

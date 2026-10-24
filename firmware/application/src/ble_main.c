@@ -94,6 +94,7 @@ static nrf_saadc_value_t adc_buf[ADC_BUF_COUNT][ADC_BUF_SIZE];
 static uint16_t   m_conn_handle          = BLE_CONN_HANDLE_INVALID;                 /**< Handle of the current connection. */
 static uint16_t   m_ble_nus_max_data_len = BLE_GATT_ATT_MTU_DEFAULT - 3;            /**< Maximum length of data (in bytes) that can be transmitted to the peer by the Nordic UART service module. */
 lf_adc_callback_t m_lf_adc_callback      = NULL;
+static bool m_lf_adc_single_capture = false;
 
 static ble_uuid_t m_adv_uuids[]          =                                          /**< Universally unique service identifier. */
 {
@@ -737,8 +738,10 @@ static void peer_manager_init(void) {
 void saadc_event_handler(nrfx_saadc_evt_t const *p_event) {
     if (p_event->type == NRFX_SAADC_EVT_DONE && m_lf_adc_callback != NULL) {
         ret_code_t err_code;
-        err_code = nrfx_saadc_buffer_convert(&adc_buf[next_free_buf_index()][0], ADC_BUF_SIZE);
-        APP_ERROR_CHECK(err_code);
+        if (!m_lf_adc_single_capture) {
+            err_code = nrfx_saadc_buffer_convert(&adc_buf[next_free_buf_index()][0], ADC_BUF_SIZE);
+            APP_ERROR_CHECK(err_code);
+        }
 
         m_lf_adc_callback(p_event->data.done.p_buffer, p_event->data.done.size);
     }
@@ -849,8 +852,10 @@ void ble_slave_init(void) {
     m_ble_initialized = true;           // Mark the stack as ready.
 }
 
-static void register_lf_adc_callback_with_acq(lf_adc_callback_t cb, nrf_saadc_acqtime_t acq_time) {
+static void register_lf_adc_callback_with_acq(lf_adc_callback_t cb, nrf_saadc_acqtime_t acq_time,
+                                              nrf_saadc_value_t *capture, uint16_t count) {
     m_lf_adc_callback = cb;
+    m_lf_adc_single_capture = capture != NULL;
 
     nrfx_saadc_uninit();
 
@@ -865,20 +870,25 @@ static void register_lf_adc_callback_with_acq(lf_adc_callback_t cb, nrf_saadc_ac
     err_code = nrfx_saadc_channel_init(ADC_CHANNEL, &ch);
     APP_ERROR_CHECK(err_code);
 
-    err_code = nrfx_saadc_buffer_convert(&adc_buf[next_free_buf_index()][0], ADC_BUF_SIZE);
-    APP_ERROR_CHECK(err_code);
-
-    err_code = nrfx_saadc_buffer_convert(&adc_buf[next_free_buf_index()][0], ADC_BUF_SIZE);
-    APP_ERROR_CHECK(err_code);
+    if (capture != NULL) {
+        // One EasyDMA transaction avoids interrupt-dependent gaps between buffers.
+        err_code = nrfx_saadc_buffer_convert(capture, count);
+        APP_ERROR_CHECK(err_code);
+    } else {
+        err_code = nrfx_saadc_buffer_convert(&adc_buf[next_free_buf_index()][0], ADC_BUF_SIZE);
+        APP_ERROR_CHECK(err_code);
+        err_code = nrfx_saadc_buffer_convert(&adc_buf[next_free_buf_index()][0], ADC_BUF_SIZE);
+        APP_ERROR_CHECK(err_code);
+    }
 }
 
 void register_lf_adc_callback(lf_adc_callback_t cb) {
-    register_lf_adc_callback_with_acq(cb, NRF_SAADC_ACQTIME_5US);
+    register_lf_adc_callback_with_acq(cb, NRF_SAADC_ACQTIME_5US, NULL, 0);
 }
 
-void register_lf_adc_callback_fast(lf_adc_callback_t cb) {
+void register_lf_adc_capture_fast(lf_adc_callback_t cb, nrf_saadc_value_t *capture, uint16_t count) {
     // 3 us acquisition + 2 us conversion fits the PSK 6 us sample period.
-    register_lf_adc_callback_with_acq(cb, NRF_SAADC_ACQTIME_3US);
+    register_lf_adc_callback_with_acq(cb, NRF_SAADC_ACQTIME_3US, capture, count);
 }
 
 void unregister_lf_adc_callback(void) {

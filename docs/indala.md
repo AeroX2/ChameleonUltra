@@ -122,3 +122,7 @@ the candidate firmware then returned the same frame on 29/30 physical reads
 for another capture when necessary. These measurements cover this tag and
 position, not all variants, read distances, emulation or T55xx interoperability.
 Raw credential captures are kept locally and are not checked into the repository.
+
+The final clean firmware (860f1d1), flashed to the same Ultra, subsequently
+passed 30/30 physical reads: 20 forced PSK2 and 10 automatic. All returned the
+same raw frame; measured command times were approximately 0.23 to 1.38 seconds.

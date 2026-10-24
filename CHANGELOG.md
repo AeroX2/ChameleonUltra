@@ -4,6 +4,8 @@ This project uses the changelog in accordance with [keepchangelog](http://keepac
 
 ## [unreleased][unreleased]
 
+ - Reject envelope leakage in Indala carrier decoding with a tapered filter and automatic phase-axis estimation; allow time for capture retries.
+
  - Capture Indala in one DMA transaction to eliminate interrupt-dependent gaps at 2,048-sample buffer boundaries.
 
  - Merge upstream v2.3.0 into the AeroX2 fork, preserving custom button controls and RF tuning.

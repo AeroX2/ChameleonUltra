@@ -60,7 +60,8 @@ Legacy command 3801 retains its eight-byte 64-bit PSK1 response.
 
 The Ultra captures 28,800 signed ADC samples at 166.67 kHz in one EasyDMA
 transaction into static memory,
-correlates the fc/2 subcarrier, searches alignment and requires two identical
+uses a tapered 24-sample carrier filter and estimates the phase axis from IQ
+covariance, searches alignment and requires two identical
 consecutive frames. Capture restores the LF timer, ADC and configured carrier.
 The former streaming path restarted the ADC in an interrupt every 2,048 samples;
 interrupt delays could lose sample periods and invalidate phase/timing alignment.
@@ -109,3 +110,15 @@ controls. Settings storage version 14 retains the fork v13 field offsets and
 adds the long-press threshold in its trailing padding. Migration from an
 upstream v7 settings record is not supported because upstream and older fork
 settings versions overlap; reset settings when moving from upstream firmware.
+
+## Physical read investigation (2026-10-25)
+
+Testing one stationary 224-bit PSK2 tag over USB gave 1/10 successful reads on
+c3ebbc8 and 0/20 on d8a3a3b. Three raw captures exposed strong low-frequency
+envelope interference leaking into the rectangular carrier filter. A Hann
+window and covariance-derived phase axis decoded all three captured signals;
+the candidate firmware then returned the same frame on 29/30 physical reads
+(19/20 forced PSK2, 10/10 automatic). The final reader allows at least 1.5 seconds
+for another capture when necessary. These measurements cover this tag and
+position, not all variants, read distances, emulation or T55xx interoperability.
+Raw credential captures are kept locally and are not checked into the repository.

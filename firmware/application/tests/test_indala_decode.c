@@ -9,6 +9,7 @@
 static int16_t samples[INDALA_CAPTURE_SAMPLES];
 static uint32_t rng = 1;
 static bool simulate_dma_gaps = false;
+static bool simulate_envelope = false;
 static int noise(void) { rng = rng * 1664525U + 1013904223U; return (int)((rng >> 24) & 31) - 16; }
 
 static void synth(const uint8_t *record, double phase, unsigned shift, unsigned rotation, bool mismatch) {
@@ -28,6 +29,7 @@ static void synth(const uint8_t *record, double phase, unsigned shift, unsigned 
         unsigned bit = (time + shift) * 3 / 128 + rotation;
         int sign = states[bit] ? 1 : -1;
         samples[i] = 128 + (int)(60 * sign * cos(2 * 3.141592653589793 * 3 * time / 8 + phase)) + noise();
+        if (simulate_envelope) samples[i] += 5500 + (int)(1200 * sin(2 * 3.141592653589793 * time / 131.0));
     }
 }
 
@@ -69,6 +71,13 @@ int main(void) {
                 assert(indala_decode_ex(samples, INDALA_CAPTURE_SAMPLES, output, psk));
                 assert(memcmp(output, record, 32) == 0);
             }
+            simulate_envelope = true;
+            for (unsigned phase = 0; phase < 8; phase++) {
+                synth(record, phase * 0.7, phase * 5, phase * 7, false);
+                assert(indala_decode_ex(samples, INDALA_CAPTURE_SAMPLES, output, psk));
+                assert(memcmp(output, record, 32) == 0);
+            }
+            simulate_envelope = false;
             synth(record, 0.4, 17, 0, true);
             assert(!indala_decode_ex(samples, INDALA_CAPTURE_SAMPLES, output, psk));
             uint32_t blocks[8] = {0};

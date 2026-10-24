@@ -32,7 +32,10 @@ static uint32_t g_timeout_readem_ms = 500;
 extern bool indala_read(uint8_t *raw, uint32_t timeout_ms, uint8_t psk);
 
 uint8_t scan_indala(uint8_t *raw, uint8_t psk) {
-    return indala_read(raw, g_timeout_readem_ms, psk) ? STATUS_LF_TAG_OK : STATUS_LF_TAG_NO_FOUND;
+    // A long-frame capture plus alignment search can consume the generic
+    // 500 ms budget. Leave time for another capture after a missed frame.
+    uint32_t timeout = g_timeout_readem_ms < 1500 ? 1500 : g_timeout_readem_ms;
+    return indala_read(raw, timeout, psk) ? STATUS_LF_TAG_OK : STATUS_LF_TAG_NO_FOUND;
 }
 
 uint8_t scan_em410x(uint8_t *uid) {
